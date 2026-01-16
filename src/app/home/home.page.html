@@ -1,20 +1,67 @@
-<ion-header [translucent]="true">
-  <ion-toolbar>
-    <ion-title>
-      Blank
-    </ion-title>
-  </ion-toolbar>
-</ion-header>
+<ion-content fullscreen class="home-bg">
 
-<ion-content [fullscreen]="true">
-  <ion-header collapse="condense">
-    <ion-toolbar>
-      <ion-title size="large">Blank</ion-title>
-    </ion-toolbar>
-  </ion-header>
+  <!-- HOME VIEW -->
+  <div>
+    <!-- Top Header -->
+    <div class="header-section">
+      <h1>Document Scanner</h1>
+    </div>
 
-  <div id="container">
-    <strong>Ready to create an app?</strong>
-    <p>Start with Ionic <a target="_blank" rel="noopener noreferrer" href="https://ionicframework.com/docs/components">UI Components</a></p>
+    <!-- Search Bar -->
+    <div class="search-container">
+      <div class="search-box">
+        <ion-icon name="search-outline"></ion-icon>
+        <input type="text" placeholder="Search" />
+      </div>
+      <!-- Hidden File Input for Web -->
+      <input type="file" accept="image/*" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
+        style="display: none;">
+    </div>
+
+    <!-- Content Grid -->
+    <div class="content-grid">
+      <ion-grid>
+        <ion-row>
+          <!-- Documents -->
+          @for (doc of documents; track doc.name) {
+          <ion-col size="4">
+            <div class="doc-card">
+              <div class="doc-preview">
+                @if (doc.thumbnail) {
+                <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
+                } @else {
+                <ion-icon name="document-text" color="primary"></ion-icon>
+                }
+                <div class="doc-badge"></div>
+              </div>
+              <span class="doc-name">{{ doc.name }}</span>
+              <span class="doc-date">{{ doc.date }}</span>
+            </div>
+          </ion-col>
+          }
+        </ion-row>
+      </ion-grid>
+    </div>
   </div>
+
 </ion-content>
+
+<!-- Bottom Navigation (Outside Content for Fixed Position) -->
+<ion-footer>
+  <ion-tab-bar>
+    <ion-tab-button tab="home" (click)="goHome()">
+      <ion-icon name="home-outline"></ion-icon>
+    </ion-tab-button>
+
+    <!-- Center Camera Button -->
+    <div class="camera-tab-button">
+      <div class="camera-circle" (click)="takePhoto()">
+        <ion-icon name="camera"></ion-icon>
+      </div>
+    </div>
+
+    <ion-tab-button tab="docs" (click)="openFilePicker()">
+      <ion-icon name="documents-outline"></ion-icon>
+    </ion-tab-button>
+  </ion-tab-bar>
+</ion-footer>
