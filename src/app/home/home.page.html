@@ -1,49 +1,46 @@
-<ion-content fullscreen class="home-bg">
+<ion-header>
+  <ion-toolbar color="primary">
+    <img src="assets/icon/icon.png" class="header-logo" slot="start"/>
+    <ion-title>DocScan</ion-title>
+  </ion-toolbar>
+</ion-header>
 
-  <!-- HOME VIEW -->
-  <div>
-    <!-- Top Header -->
-    <div class="header-section">
-      <h1>Document Scanner</h1>
+<ion-content class="home-bg">
+  <!-- Search Bar -->
+  <div class="search-container">
+    <div class="search-box">
+      <ion-icon name="search-outline"></ion-icon>
+      <input type="text" placeholder="Search" />
     </div>
-
-    <!-- Search Bar -->
-    <div class="search-container">
-      <div class="search-box">
-        <ion-icon name="search-outline"></ion-icon>
-        <input type="text" placeholder="Search" />
-      </div>
-      <!-- Hidden File Input for Web -->
-      <input type="file" accept="image/*" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
-        style="display: none;">
-    </div>
-
-    <!-- Content Grid -->
-    <div class="content-grid">
-      <ion-grid>
-        <ion-row>
-          <!-- Documents -->
-          @for (doc of documents; track doc.name) {
-          <ion-col size="4">
-            <div class="doc-card">
-              <div class="doc-preview">
-                @if (doc.thumbnail) {
-                <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
-                } @else {
-                <ion-icon name="document-text" color="primary"></ion-icon>
-                }
-                <div class="doc-badge"></div>
-              </div>
-              <span class="doc-name">{{ doc.name }}</span>
-              <span class="doc-date">{{ doc.date }}</span>
-            </div>
-          </ion-col>
-          }
-        </ion-row>
-      </ion-grid>
-    </div>
+    <!-- Hidden File Input for Web -->
+    <input type="file" accept="image/*" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
+      style="display: none;">
   </div>
 
+  <!-- Content Grid -->
+  <div class="content-grid">
+    <ion-grid>
+      <ion-row>
+        <!-- Documents -->
+        @for (doc of documents; track doc.name) {
+        <ion-col size="4">
+          <div class="doc-card">
+            <div class="doc-preview">
+              @if (doc.thumbnail) {
+              <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
+              } @else {
+              <ion-icon name="document-text" color="primary"></ion-icon>
+              }
+              <div class="doc-badge"></div>
+            </div>
+            <span class="doc-name">{{ doc.name }}</span>
+            <span class="doc-date">{{ doc.date }}</span>
+          </div>
+        </ion-col>
+        }
+      </ion-row>
+    </ion-grid>
+  </div>
 </ion-content>
 
 <!-- Bottom Navigation (Outside Content for Fixed Position) -->

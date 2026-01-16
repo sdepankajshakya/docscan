@@ -3,27 +3,11 @@ $font-family: 'Inter', sans-serif;
 $bg-color: #ffffff;
 $text-color: #1a1a1a;
 $gray-light: #f5f5f5;
-$primary-blue: #256EFF;
+$primary-blue: #4285F4;
 
-ion-content {
-  --background: #{$bg-color};
-  font-family: $font-family;
-}
-
-// Header Section
-.header-section {
-  padding: 2px 20px 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 10px;
-
-  h1 {
-    font-size: 28px;
-    font-weight: 700;
-    color: $text-color;
-    margin: 0;
-  }
+.header-logo {
+  width: 70px;
+  margin-left: 10px;
 }
 
 // Search Bar
@@ -62,8 +46,6 @@ ion-content {
 .content-grid {
   padding: 0 10px;
 }
-
-
 
 // Doc Card
 .doc-card {
@@ -159,5 +141,3 @@ ion-footer {
     }
   }
 }
-
-// Preview Mode Styles - REMOVED (Moved to DocEditorComponent)
