@@ -13,7 +13,7 @@
       <input type="text" placeholder="Search" />
     </div>
     <!-- Hidden File Input for Web -->
-    <input type="file" accept="image/*" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
+    <input type="file" accept="image/*,application/pdf" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
       style="display: none;">
   </div>
 
@@ -28,8 +28,10 @@
             <div class="doc-preview">
               @if (doc.thumbnail) {
               <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
+              } @else if (doc.type === 'pdf') {
+              <ion-icon name="document-outline" color="primary"></ion-icon>
               } @else {
-              <ion-icon name="document-text" color="primary"></ion-icon>
+              <ion-icon name="image-outline" color="primary"></ion-icon>
               }
               <div class="doc-badge"></div>
             </div>

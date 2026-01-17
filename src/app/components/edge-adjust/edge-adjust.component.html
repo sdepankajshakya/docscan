@@ -1,0 +1,26 @@
+<div class="edge-adjust-container">
+  <div class="header">
+    <ion-button fill="clear" (click)="cancel()">
+      <ion-icon name="close-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+    <h2>Adjust Corners</h2>
+    <ion-button fill="clear" (click)="confirm()">
+      <ion-icon name="checkmark-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+  </div>
+
+  <div class="instructions">
+    Drag the corners to match the document edges
+  </div>
+
+  <div class="canvas-container" 
+       (touchstart)="onTouchStart($event)"
+       (touchmove)="onTouchMove($event)"
+       (touchend)="onTouchEnd()"
+       (mousedown)="onMouseDown($event)"
+       (mousemove)="onMouseMove($event)"
+       (mouseup)="onMouseUp()"
+       (mouseleave)="onMouseUp()">
+    <canvas #canvas></canvas>
+  </div>
+</div>

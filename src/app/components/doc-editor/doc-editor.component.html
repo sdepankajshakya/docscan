@@ -1,0 +1,54 @@
+<div class="preview-container">
+  <ion-spinner *ngIf="loading" class="loading-spinner"></ion-spinner>
+  
+  <div class="preview-header">
+    <ion-button fill="clear" (click)="cancel()">
+      <ion-icon name="arrow-back-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+    <h2>Edit Document <span *ngIf="totalPages > 1">({{currentPage + 1}}/{{totalPages}})</span></h2>
+    <ion-button fill="clear" (click)="showSaveOptions()">
+      <ion-icon name="checkmark-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+  </div>
+
+  <div class="pagination-controls" *ngIf="totalPages > 1">
+    <ion-button fill="clear" (click)="prevPage()" [disabled]="currentPage === 0">
+      <ion-icon name="chevron-back-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+    <span class="page-indicator">Page {{currentPage + 1}} of {{totalPages}}</span>
+    <ion-button fill="clear" (click)="nextPage()" [disabled]="currentPage === totalPages - 1">
+      <ion-icon name="chevron-forward-outline" slot="icon-only"></ion-icon>
+    </ion-button>
+  </div>
+
+  <div class="canvas-wrapper">
+    <canvas #canvas></canvas>
+  </div>
+
+  <div class="filter-controls">
+    <div class="filter-option" (click)="applyFilter('original')" [class.active]="activeFilter === 'original'">
+      Original
+    </div>
+    <div class="filter-option" (click)="applyFilter('grayscale')" [class.active]="activeFilter === 'grayscale'">
+      Gray
+    </div>
+    <div class="filter-option" (click)="applyFilter('adaptive-threshold')" [class.active]="activeFilter === 'adaptive-threshold'">
+      B&W
+    </div>
+    <div class="filter-option" (click)="applyFilter('high-contrast')" [class.active]="activeFilter === 'high-contrast'">
+      Contrast
+    </div>
+    <div class="filter-option" (click)="applyFilter('brightness')" [class.active]="activeFilter === 'brightness'">
+      Bright
+    </div>
+    <div class="filter-option" (click)="applyFilter('vibrant')" [class.active]="activeFilter === 'vibrant'">
+      Vibrant
+    </div>
+    <div class="filter-option" (click)="applyFilter('sepia')" [class.active]="activeFilter === 'sepia'">
+      Sepia
+    </div>
+    <div class="filter-option" (click)="applyFilter('invert')" [class.active]="activeFilter === 'invert'">
+      Invert
+    </div>
+  </div>
+</div>

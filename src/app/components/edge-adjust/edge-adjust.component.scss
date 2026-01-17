@@ -1,0 +1,58 @@
+.edge-adjust-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+
+    .header {
+        height: 60px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 10px;
+        background: rgba(0, 0, 0, 0.9);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+        h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            margin: 0;
+        }
+
+        ion-button {
+            --color: #fff;
+        }
+    }
+
+    .instructions {
+        padding: 15px;
+        text-align: center;
+        color: #fff;
+        font-size: 14px;
+        background: rgba(66, 133, 244, 0.9);
+    }
+
+    .canvas-container {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 0;
+        overflow: hidden;
+        background: #000;
+        touch-action: none;
+        user-select: none;
+        cursor: grab;
+
+        &:active {
+            cursor: grabbing;
+        }
+
+        canvas {
+            display: block;
+            pointer-events: auto;
+            touch-action: none;
+        }
+    }
+}

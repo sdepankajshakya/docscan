@@ -34,4 +34,14 @@
 
 /* @import "@ionic/angular/css/palettes/dark.always.css"; */
 /* @import "@ionic/angular/css/palettes/dark.class.css"; */
-@import '@ionic/angular/css/palettes/dark.system.css';
+/* @import '@ionic/angular/css/palettes/dark.system.css'; */
+
+/* Disable dark mode - keep app in light mode always */
+:root {
+  color-scheme: light only;
+}
+
+body {
+  background: #fff;
+  color: #000;
+}
