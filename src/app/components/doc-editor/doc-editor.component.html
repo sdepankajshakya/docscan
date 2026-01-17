@@ -6,7 +6,7 @@
       <ion-icon name="arrow-back-outline" slot="icon-only"></ion-icon>
     </ion-button>
     <h2>Edit Document <span *ngIf="totalPages > 1">({{currentPage + 1}}/{{totalPages}})</span></h2>
-    <ion-button fill="clear" (click)="showSaveOptions()">
+    <ion-button fill="clear" (click)="save()">
       <ion-icon name="checkmark-outline" slot="icon-only"></ion-icon>
     </ion-button>
   </div>

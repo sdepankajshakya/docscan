@@ -121,35 +121,9 @@ export class DocEditorComponent implements AfterViewInit {
         this.router.navigate(['/home'], { replaceUrl: true });
     }
 
-    async showSaveOptions() {
-        const actionSheet = await this.actionSheetCtrl.create({
-            header: 'Save Document As',
-            buttons: [
-                {
-                    text: 'Save as Image (JPEG)',
-                    icon: 'image-outline',
-                    handler: () => {
-                        this.save('image');
-                    }
-                },
-                {
-                    text: 'Save as PDF',
-                    icon: 'document-outline',
-                    handler: () => {
-                        this.save('pdf');
-                    }
-                },
-                {
-                    text: 'Cancel',
-                    role: 'cancel'
-                }
-            ]
-        });
 
-        await actionSheet.present();
-    }
 
-    async save(format: 'image' | 'pdf' = 'image') {
+    async save() {
         if (!this.originalImageData || !this.canvasRef) return;
 
         this.loading = true;
@@ -173,32 +147,25 @@ export class DocEditorComponent implements AfterViewInit {
         const fullImage = allProcessedImages[0];
         const thumbnail = canvas.toDataURL('image/jpeg', 0.4); // Lower quality for thumbnails
 
-        // formatted date: DD/MM/YYYY HH:mm
-        const now = new Date();
-        const dateStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // Check if we are editing an existing document
+        const activeDoc = this.docService.getActiveDocument();
+        if (activeDoc && activeDoc.originalDoc) {
+            await this.docService.updateDocument(activeDoc.originalDoc, fullImage, thumbnail);
+        } else {
+            // New document
+            const now = new Date();
+            let name = this.originalName;
+            if (!name) {
+                name = `Scan_${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+            }
 
-        let name = this.originalName;
-        if (!name) {
-            name = `Scan_${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+            await this.docService.saveProcessedDocument(
+                [fullImage],
+                name,
+                'image',
+                thumbnail
+            );
         }
-
-        // Remove extension if present
-        name = name.replace(/\.(jpg|jpeg|png|pdf)$/i, '');
-
-        if (format === 'pdf') {
-            // Export as PDF with all processed pages
-            const pdfBlob = await this.docService.exportAsPDF(allProcessedImages, name);
-            this.docService.downloadBlob(pdfBlob, `${name}.pdf`);
-        }
-
-        // Add document to service
-        this.docService.addDocument({
-            name: format === 'pdf' ? `${name}.pdf` : `${name}.jpg`,
-            date: dateStr,
-            thumbnail: thumbnail,
-            fullImage: fullImage,
-            type: format
-        });
 
         this.docService.clearActiveDocument();
         this.router.navigate(['/home'], { replaceUrl: true });

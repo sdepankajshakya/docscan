@@ -5,9 +5,22 @@ $text-color: #1a1a1a;
 $gray-light: #f5f5f5;
 $primary-blue: #4285F4;
 
+.brand-title {
+  padding-inline: 0; // Remove default padding if needed
+}
+
+.branding-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 100%;
+}
+
+
 .header-logo {
-  width: 70px;
-  margin-left: 10px;
+  height: 32px;
+  width: auto;
+  display: block;
 }
 
 // Search Bar
@@ -31,6 +44,12 @@ $primary-blue: #4285F4;
       margin-right: 10px;
     }
 
+    .clear-icon {
+      margin-right: 0;
+      margin-left: 10px;
+      color: #666;
+    }
+
     input {
       border: none;
       background: transparent;
@@ -45,6 +64,46 @@ $primary-blue: #4285F4;
 // Content Grid
 .content-grid {
   padding: 0 10px;
+  min-height: 50%; // Ensure it takes space
+}
+
+// Empty State
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: #666;
+
+  .empty-icon-container {
+    width: 80px;
+    height: 80px;
+    background: rgba($primary-blue, 0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+
+    ion-icon {
+      font-size: 40px;
+      color: $primary-blue;
+    }
+  }
+
+  h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+  }
+
+  p {
+    font-size: 14px;
+    margin: 0;
+  }
 }
 
 // Doc Card
@@ -54,21 +113,54 @@ $primary-blue: #4285F4;
   align-items: center;
   gap: 8px;
   margin-bottom: 20px;
+  cursor: pointer;
+  width: 100%;
 
   .doc-preview {
-    width: 60px;
-    height: 75px;
+    width: 100%;
+    aspect-ratio: 0.8; // Maintain document-like aspect ratio
     background: #fff;
-    border-radius: 4px; // Document shape
+    border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
+    overflow: hidden;
+
+    &.pdf-type {
+      background: #fdfdfd;
+    }
+
+    .doc-thumb-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
 
     ion-icon {
       font-size: 32px;
       color: $primary-blue;
+    }
+
+    .more-options {
+      position: absolute;
+      bottom: 5px;
+      right: 5px;
+      width: 28px;
+      height: 28px;
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      z-index: 10;
+
+      ion-icon {
+        font-size: 16px;
+        color: #555;
+      }
     }
   }
 
@@ -76,6 +168,16 @@ $primary-blue: #4285F4;
     font-size: 13px;
     font-weight: 500;
     color: #444;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+  }
+
+  .doc-date {
+    font-size: 11px;
+    color: #999;
   }
 }
 

@@ -1,8 +1,11 @@
 import { Injectable, inject } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { Camera, CameraResultType, CameraSource, Photo } from '@capacitor/camera';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument } from 'pdf-lib';
 import { EdgeDetectionService } from './edge-detection.service';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Preferences } from '@capacitor/preferences';
 
 // Configure PDF.js worker - use local file instead of CDN
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdf.worker.min.js';
@@ -27,6 +30,7 @@ export interface ActiveDocumentState {
     image: string; // Data URL for single image
     images?: string[]; // Data URLs for multiple pages
     originalName?: string;
+    originalDoc?: ScannedDocument;
 }
 
 export interface EdgeDetectionState {
@@ -54,8 +58,218 @@ export class DocumentProcessingService {
         return this._documents;
     }
 
-    addDocument(doc: ScannedDocument) {
+    async loadDocuments() {
+        const { value } = await Preferences.get({ key: 'saved_documents' });
+        if (value) {
+            this._documents = JSON.parse(value);
+
+            // REVERSE MIGRATION: 
+            // If we find file paths (from the failed experiment), read them back into Base64
+            // so everything is consistent and "as it was".
+            let repairNeeded = false;
+
+            for (const doc of this._documents) {
+                // Repair Thumbnail
+                if (doc.thumbnail && !doc.thumbnail.startsWith('data:')) {
+                    try {
+                        const data = await Filesystem.readFile({
+                            path: doc.thumbnail,
+                            directory: Directory.Data
+                        });
+                        // Capacitor readFile returns base64 content in .data
+                        doc.thumbnail = `data:image/jpeg;base64,${data.data}`;
+                        repairNeeded = true;
+                    } catch (e) {
+                        console.warn('Could not restore thumbnail', doc.name);
+                        // Keep broken reference or null? better null
+                        doc.thumbnail = null;
+                    }
+                }
+
+                // Repair Full Image
+                if (doc.fullImage && !doc.fullImage.startsWith('data:')) {
+                    try {
+                        const data = await Filesystem.readFile({
+                            path: doc.fullImage,
+                            directory: Directory.Data
+                        });
+                        const ext = doc.type === 'pdf' ? 'pdf' : 'jpeg';
+                        const prefix = doc.type === 'pdf' ? 'data:application/pdf;base64,' : 'data:image/jpeg;base64,';
+                        doc.fullImage = `${prefix}${data.data}`;
+                        repairNeeded = true;
+                    } catch (e) {
+                        console.warn('Could not restore image', doc.name);
+                    }
+                }
+            }
+
+            if (repairNeeded) {
+                console.log('Restored documents from filesystem to internal storage.');
+                this.saveDocumentsList();
+            }
+        }
+    }
+
+    async addDocument(doc: ScannedDocument) {
         this._documents.unshift(doc);
+        this.saveDocumentsList();
+    }
+
+    async updateDocument(originalDoc: ScannedDocument, newImageBase64: string, newThumbnail: string) {
+        originalDoc.fullImage = newImageBase64;
+        originalDoc.thumbnail = newThumbnail;
+        // originalDoc.date = new Date().toLocaleString(); // Optional update date
+        this.saveDocumentsList();
+    }
+
+    async deleteDocument(doc: ScannedDocument) {
+        const index = this._documents.findIndex(d => d.name === doc.name && d.date === doc.date);
+        if (index > -1) {
+            this._documents.splice(index, 1);
+            this.saveDocumentsList();
+        }
+    }
+
+    async renameDocument(doc: ScannedDocument, newName: string) {
+        doc.name = newName;
+        this.saveDocumentsList();
+    }
+
+    async saveDocumentAs(doc: ScannedDocument, format: 'image' | 'pdf') {
+        if (!doc.fullImage) return;
+
+        // Load image if not loaded - ensure it is a full Data URL
+        let imageSrc = doc.fullImage;
+        if (!doc.fullImage.startsWith('data:')) {
+            const loaded = await this.loadDocumentImage(doc.fullImage);
+            if (loaded) imageSrc = loaded;
+            else return; // Failed to load
+        }
+
+        const baseName = doc.name.replace(/\.[^/.]+$/, "");
+        const uniqueSuffix = `_${Date.now()}`;
+        const fileName = format === 'image' ?
+            `${baseName}_saved${uniqueSuffix}.jpg` :
+            `${baseName}${uniqueSuffix}.pdf`;
+
+        // Check if platform is Web
+        const isWeb = Capacitor.getPlatform() === 'web';
+
+        if (isWeb) {
+            if (format === 'pdf') {
+                const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
+                this.downloadBlob(pdfBlob, fileName);
+            } else {
+                // Download image
+                const link = document.createElement('a');
+                link.href = imageSrc;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+            return;
+        }
+
+        // Native Implementation
+        try {
+            let dataToWrite = '';
+
+            if (format === 'pdf') {
+                const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
+                // Convert Blob to Base64
+                dataToWrite = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(pdfBlob);
+                });
+            } else {
+                dataToWrite = imageSrc;
+            }
+
+            await Filesystem.writeFile({
+                path: fileName,
+                data: dataToWrite,
+                directory: Directory.Documents
+            });
+
+            // Helpful log or toast could be added here if we had ToastController
+            console.log(`Saved to Documents/${fileName}`);
+            alert(`File saved to Documents folder as ${fileName}`);
+
+        } catch (error) {
+            console.error('Error saving to documents', error);
+            alert('Failed to save file to Documents.');
+        }
+    }
+
+    async saveProcessedDocument(
+        images: string[],
+        baseName: string,
+        format: 'image' | 'pdf',
+        thumbnail?: string
+    ) {
+        if (!images.length) return;
+
+        // Ensure we have a valid name
+        let name = baseName;
+        // Strip extension if present
+        name = name.replace(/\.(jpg|jpeg|png|pdf)$/i, '');
+
+        if (format === 'pdf') {
+            const pdfBlob = await this.exportAsPDF(images, name);
+            const reader = new FileReader();
+
+            return new Promise<void>((resolve, reject) => {
+                reader.onloadend = async () => {
+                    const base64data = reader.result as string;
+
+                    await this.addDocument({
+                        name: `${name}.pdf`,
+                        date: new Date().toLocaleString(),
+                        thumbnail: thumbnail || null,
+                        fullImage: base64data,
+                        type: 'pdf'
+                    });
+                    resolve();
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(pdfBlob);
+            });
+        } else {
+            // Save as Image (First page only for now if multiple?)
+            // Usually we save single image
+            await this.addDocument({
+                name: `${name}.jpg`,
+                date: new Date().toLocaleString(),
+                thumbnail: thumbnail || null,
+                fullImage: images[0],
+                type: 'image'
+            });
+        }
+    }
+
+    private async saveDocumentsList() {
+        await Preferences.set({
+            key: 'saved_documents',
+            value: JSON.stringify(this._documents)
+        });
+    }
+
+    async loadDocumentImage(filePath: string): Promise<string | null> {
+        try {
+            const readFile = await Filesystem.readFile({
+                path: filePath,
+                directory: Directory.Data
+            });
+            // Web returns result as dataUrl (base64) when requested?
+            // Actually Capacitor result.data is base64 string
+            return `data:image/jpeg;base64,${readFile.data}`;
+        } catch (e) {
+            console.error('Error loading image', e);
+            return null;
+        }
     }
 
     // Active Editor State Methods
@@ -402,6 +616,19 @@ export class DocumentProcessingService {
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    }
+
+
+    private dataURLToBlob(dataURL: string): Blob {
+        const arr = dataURL.split(',');
+        const mime = arr[0].match(/:(.*?);/)![1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], { type: mime });
     }
 
     /**

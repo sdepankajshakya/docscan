@@ -1,16 +1,25 @@
-<ion-header>
+<ion-header class="ion-no-border">
   <ion-toolbar color="primary">
-    <img src="assets/icon/icon.png" class="header-logo" slot="start"/>
-    <ion-title>DocScan</ion-title>
+    <ion-title class="brand-title">
+      <div class="branding-container">
+        <img src="assets/icon/icon.png" class="header-logo" />
+        <span>DocScan</span>
+      </div>
+    </ion-title>
   </ion-toolbar>
 </ion-header>
 
 <ion-content class="home-bg">
+  <ion-refresher slot="fixed" (ionRefresh)="handleRefresh($event)">
+    <ion-refresher-content></ion-refresher-content>
+  </ion-refresher>
+
   <!-- Search Bar -->
   <div class="search-container">
     <div class="search-box">
       <ion-icon name="search-outline"></ion-icon>
-      <input type="text" placeholder="Search" />
+      <input type="text" placeholder="Search documents..." [value]="searchQuery" (input)="search($event)" />
+      <ion-icon *ngIf="searchQuery" name="close-circle" (click)="searchQuery = ''" class="clear-icon"></ion-icon>
     </div>
     <!-- Hidden File Input for Web -->
     <input type="file" accept="image/*,application/pdf" class="hidden-input" #fileInput (change)="handleFileSelect($event)"
@@ -19,12 +28,24 @@
 
   <!-- Content Grid -->
   <div class="content-grid">
+    <!-- Empty State -->
+    @if (filteredDocuments.length === 0) {
+      <div class="empty-state">
+        <div class="empty-icon-container">
+           <ion-icon name="document-text-outline"></ion-icon>
+        </div>
+        <h3>No Documents Found</h3>
+        <p *ngIf="!searchQuery">Tap the camera button to scan your first document.</p>
+        <p *ngIf="searchQuery">Try adjusting your search terms.</p>
+      </div>
+    }
+
     <ion-grid>
       <ion-row>
         <!-- Documents -->
-        @for (doc of documents; track doc.name) {
-        <ion-col size="4">
-          <div class="doc-card">
+        @for (doc of filteredDocuments; track $index) {
+        <ion-col size="4" size-sm="3" size-md="2">
+          <div class="doc-card" (click)="openDocument(doc)">
             <div class="doc-preview">
               @if (doc.thumbnail) {
               <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
@@ -33,7 +54,11 @@
               } @else {
               <ion-icon name="image-outline" color="primary"></ion-icon>
               }
-              <div class="doc-badge"></div>
+              
+              <!-- More Options Button -->
+               <div class="more-options" (click)="$event.stopPropagation(); presentDocumentOptions(doc)">
+                  <ion-icon name="ellipsis-vertical"></ion-icon>
+               </div>
             </div>
             <span class="doc-name">{{ doc.name }}</span>
             <span class="doc-date">{{ doc.date }}</span>
@@ -46,10 +71,10 @@
 </ion-content>
 
 <!-- Bottom Navigation (Outside Content for Fixed Position) -->
-<ion-footer>
+<ion-footer class="ion-no-border">
   <ion-tab-bar>
     <ion-tab-button tab="home" (click)="goHome()">
-      <ion-icon name="home-outline"></ion-icon>
+      <ion-icon name="home-outline" [color]="!searchQuery ? 'primary' : 'medium'"></ion-icon>
     </ion-tab-button>
 
     <!-- Center Camera Button -->
@@ -60,7 +85,7 @@
     </div>
 
     <ion-tab-button tab="docs" (click)="openFilePicker()">
-      <ion-icon name="documents-outline"></ion-icon>
+      <ion-icon name="folder-open-outline"></ion-icon>
     </ion-tab-button>
   </ion-tab-bar>
 </ion-footer>
