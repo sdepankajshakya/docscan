@@ -1,6 +1,7 @@
-import { Component, Input, ViewChild, ElementRef, AfterViewInit } from '@angular/core';
+import { Component, ViewChild, ElementRef, AfterViewInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonicModule, ModalController, ActionSheetController } from '@ionic/angular';
+import { IonicModule, ActionSheetController } from '@ionic/angular';
+import { Router } from '@angular/router';
 import { addIcons } from 'ionicons';
 import { arrowBackOutline, checkmarkOutline, downloadOutline, imageOutline, documentOutline, chevronBackOutline, chevronForwardOutline } from 'ionicons/icons';
 import { DocumentProcessingService } from '../../services/doc-processing.service';
@@ -14,10 +15,6 @@ import { DocumentProcessingService } from '../../services/doc-processing.service
 })
 export class DocEditorComponent implements AfterViewInit {
 
-    @Input() image!: string; // Data URL (for single image)
-    @Input() images?: string[]; // Data URLs (for multiple pages)
-    @Input() originalName?: string;
-
     @ViewChild('canvas', { static: false })
     canvasRef!: ElementRef<HTMLCanvasElement>;
 
@@ -26,23 +23,40 @@ export class DocEditorComponent implements AfterViewInit {
     public currentPage = 0;
     public totalPages = 0;
     public allImageData: string[] = [];
-    private originalImageData?: ImageData;
 
-    constructor(
-        private modalCtrl: ModalController,
-        private docService: DocumentProcessingService,
-        private actionSheetCtrl: ActionSheetController
-    ) {
+    private originalImageData?: ImageData;
+    // Original inputs are now local state from service
+    private image!: string;
+    private images?: string[];
+    private originalName?: string;
+
+    private docService = inject(DocumentProcessingService);
+    private actionSheetCtrl = inject(ActionSheetController);
+    private router = inject(Router);
+
+    constructor() {
         addIcons({ arrowBackOutline, checkmarkOutline, downloadOutline, imageOutline, documentOutline, chevronBackOutline, chevronForwardOutline });
     }
 
     ngAfterViewInit() {
+        // Get active document from service
+        const activeDoc = this.docService.getActiveDocument();
+        if (!activeDoc) {
+            console.error('No active document found');
+            this.cancel();
+            return;
+        }
+
+        this.image = activeDoc.image;
+        this.images = activeDoc.images;
+        this.originalName = activeDoc.originalName;
+
         this.loadImage();
     }
 
     private async loadImage() {
         this.loading = true;
-        
+
         if (this.images && this.images.length > 0) {
             // Multi-page mode - store all images and load first page
             this.allImageData = this.images;
@@ -56,19 +70,19 @@ export class DocEditorComponent implements AfterViewInit {
             this.currentPage = 0;
             await this.loadCurrentPage();
         }
-        
+
         this.loading = false;
     }
 
     private async loadCurrentPage() {
         if (!this.canvasRef || !this.allImageData[this.currentPage]) return;
-        
+
         const result = await this.docService.loadImageToCanvas(
             this.canvasRef.nativeElement,
             this.allImageData[this.currentPage]
         );
         this.originalImageData = result.original;
-        
+
         // Re-apply current filter
         if (this.activeFilter !== 'original') {
             this.applyFilter(this.activeFilter);
@@ -103,7 +117,8 @@ export class DocEditorComponent implements AfterViewInit {
     }
 
     cancel() {
-        return this.modalCtrl.dismiss(null, 'cancel');
+        this.docService.clearActiveDocument();
+        this.router.navigate(['/home'], { replaceUrl: true });
     }
 
     async showSaveOptions() {
@@ -139,19 +154,19 @@ export class DocEditorComponent implements AfterViewInit {
 
         this.loading = true;
         const allProcessedImages: string[] = [];
-        
+
         // Process all pages with current filter
         for (let i = 0; i < this.allImageData.length; i++) {
             const tempCanvas = document.createElement('canvas');
             const result = await this.docService.loadImageToCanvas(tempCanvas, this.allImageData[i]);
-            
+
             if (this.activeFilter !== 'original') {
                 this.docService.applyFilter(tempCanvas, this.activeFilter, result.original);
             }
-            
+
             allProcessedImages.push(tempCanvas.toDataURL('image/jpeg', 0.85)); // Optimized quality
         }
-        
+
         this.loading = false;
 
         const canvas = this.canvasRef.nativeElement;
@@ -176,14 +191,16 @@ export class DocEditorComponent implements AfterViewInit {
             this.docService.downloadBlob(pdfBlob, `${name}.pdf`);
         }
 
-        const result = {
+        // Add document to service
+        this.docService.addDocument({
             name: format === 'pdf' ? `${name}.pdf` : `${name}.jpg`,
             date: dateStr,
             thumbnail: thumbnail,
             fullImage: fullImage,
             type: format
-        };
+        });
 
-        return this.modalCtrl.dismiss(result, 'confirm');
+        this.docService.clearActiveDocument();
+        this.router.navigate(['/home'], { replaceUrl: true });
     }
 }

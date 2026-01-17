@@ -14,6 +14,27 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdf.worker.min.js';
  * Also handles PDF processing and generation.
  * Includes OpenCV.js-based edge detection for document scanning.
  */
+
+export interface ScannedDocument {
+    name: string;
+    date: string;
+    thumbnail: string | null;
+    fullImage?: string;
+    type?: 'image' | 'pdf';
+}
+
+export interface ActiveDocumentState {
+    image: string; // Data URL for single image
+    images?: string[]; // Data URLs for multiple pages
+    originalName?: string;
+}
+
+export interface EdgeDetectionState {
+    imageData: string;
+    detectedCorners?: Array<{ x: number; y: number }>;
+    originalName?: string;
+}
+
 @Injectable({
     providedIn: 'root'
 })
@@ -21,7 +42,47 @@ export class DocumentProcessingService {
 
     private edgeDetectionService = inject(EdgeDetectionService);
 
+    // State management
+    private _documents: ScannedDocument[] = [];
+    private _activeDocument: ActiveDocumentState | null = null;
+    private _edgeDetectionState: EdgeDetectionState | null = null;
+
     constructor() { }
+
+    // Document State Methods
+    get documents(): ScannedDocument[] {
+        return this._documents;
+    }
+
+    addDocument(doc: ScannedDocument) {
+        this._documents.unshift(doc);
+    }
+
+    // Active Editor State Methods
+    setActiveDocument(state: ActiveDocumentState) {
+        this._activeDocument = state;
+    }
+
+    getActiveDocument(): ActiveDocumentState | null {
+        return this._activeDocument;
+    }
+
+    clearActiveDocument() {
+        this._activeDocument = null;
+    }
+
+    // Edge Detection State Methods
+    setEdgeDetectionState(state: EdgeDetectionState) {
+        this._edgeDetectionState = state;
+    }
+
+    getEdgeDetectionState(): EdgeDetectionState | null {
+        return this._edgeDetectionState;
+    }
+
+    clearEdgeDetectionState() {
+        this._edgeDetectionState = null;
+    }
 
     /**
      * Captures a photo using the device camera.
@@ -160,7 +221,7 @@ export class DocumentProcessingService {
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
-            
+
             data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
             data[i + 1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
             data[i + 2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
@@ -186,12 +247,12 @@ export class DocumentProcessingService {
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
-            
+
             // Increase saturation
             const max = Math.max(r, g, b);
             const min = Math.min(r, g, b);
             const delta = max - min;
-            
+
             if (delta > 0) {
                 const saturation = 1.5;
                 const avg = (r + g + b) / 3;
@@ -298,7 +359,7 @@ export class DocumentProcessingService {
         for (const imageData of images) {
             // Remove data URL prefix
             const base64Data = imageData.split(',')[1];
-            
+
             // Embed the image
             let image;
             if (imageData.includes('image/png')) {
@@ -309,7 +370,7 @@ export class DocumentProcessingService {
 
             // Add a page with the image dimensions
             const page = pdfDoc.addPage([image.width, image.height]);
-            
+
             // Draw the image on the page
             page.drawImage(image, {
                 x: 0,
@@ -321,7 +382,7 @@ export class DocumentProcessingService {
 
         // Serialize the PDF to bytes
         const pdfBytes = await pdfDoc.save();
-        
+
         // Convert to Blob - create a new Uint8Array to ensure it's a proper ArrayBuffer
         return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
     }
