@@ -5,11 +5,11 @@
     background: #000;
 
     .header {
-        height: 60px;
+        height: calc(60px + env(safe-area-inset-top));
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0 10px;
+        padding: env(safe-area-inset-top) 10px 0 10px;
         background: rgba(0, 0, 0, 0.9);
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 

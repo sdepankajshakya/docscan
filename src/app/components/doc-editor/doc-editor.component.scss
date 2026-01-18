@@ -6,11 +6,11 @@
     background: #f5f5f5;
 
     .preview-header {
-        height: 60px;
+        height: calc(60px + env(safe-area-inset-top));
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0 10px;
+        padding: env(safe-area-inset-top) 10px 0 10px;
         background: #fff;
         border-bottom: 1px solid #eee;
 

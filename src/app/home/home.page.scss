@@ -1,36 +1,21 @@
-// Variables
-$font-family: 'Inter', sans-serif;
-$bg-color: #ffffff;
-$text-color: #1a1a1a;
-$gray-light: #f5f5f5;
 $primary-blue: #4285F4;
-
-.brand-title {
-  padding-inline: 0; // Remove default padding if needed
-}
+$gray-light: #f5f5f5;
 
 .branding-container {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  height: 100%;
+  gap: 8px;
 }
-
 
 .header-logo {
   height: 32px;
   width: auto;
-  display: block;
 }
 
-// Search Bar
 .search-container {
   padding: 20px;
-  display: flex;
-  gap: 10px;
 
   .search-box {
-    flex: 1;
     background: $gray-light;
     border-radius: 12px;
     display: flex;
@@ -56,18 +41,15 @@ $primary-blue: #4285F4;
       outline: none;
       font-size: 16px;
       width: 100%;
-      color: $text-color;
+      color: #1a1a1a;
     }
   }
 }
 
-// Content Grid
 .content-grid {
   padding: 0 10px;
-  min-height: 50%; // Ensure it takes space
 }
 
-// Empty State
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -106,7 +88,6 @@ $primary-blue: #4285F4;
   }
 }
 
-// Doc Card
 .doc-card {
   display: flex;
   flex-direction: column;
@@ -114,11 +95,10 @@ $primary-blue: #4285F4;
   gap: 8px;
   margin-bottom: 20px;
   cursor: pointer;
-  width: 100%;
 
   .doc-preview {
     width: 100%;
-    aspect-ratio: 0.8; // Maintain document-like aspect ratio
+    aspect-ratio: 0.8;
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -127,10 +107,6 @@ $primary-blue: #4285F4;
     justify-content: center;
     position: relative;
     overflow: hidden;
-
-    &.pdf-type {
-      background: #fdfdfd;
-    }
 
     .doc-thumb-img {
       width: 100%;
@@ -155,7 +131,6 @@ $primary-blue: #4285F4;
       align-items: center;
       justify-content: center;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      z-index: 10;
 
       ion-icon {
         font-size: 16px;
@@ -181,65 +156,23 @@ $primary-blue: #4285F4;
   }
 }
 
-// Footer Navigation
-ion-footer {
-  // Ensure the footer itself allows overflow
-  contain: none;
-  background: transparent;
-  box-shadow: none;
-  border: none;
+ion-tab-bar {
+  --background: #ffffff;
+  --border: 1px solid #e0e0e0;
+  height: 60px;
+  padding-bottom: env(safe-area-inset-bottom);
 
-  ion-tab-bar {
-    border-top: 1px solid #f0f0f0;
-    --background: #ffffff;
-    height: 60px;
-    padding-bottom: env(safe-area-inset-bottom);
-    position: relative;
-    overflow: visible; // Crucial for the pop-out button
-    contain: none; // Crucial for Ionic components to allow overflow
+  ion-tab-button {
+    --color: #999999;
+    --color-selected: #{$primary-blue};
 
-    ion-tab-button {
-      --color: #999;
-      --color-selected: #{$primary-blue};
-      background: transparent;
-      z-index: 1; // Lower than camera button
-
-      ion-icon {
-        font-size: 24px;
-      }
+    ion-icon {
+      font-size: 24px;
     }
 
-    .camera-tab-button {
-      position: relative;
-      top: -20px;
-      height: 60px;
-      width: 60px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 20; // Ensure it's above everything
-
-      .camera-circle {
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        background: $primary-blue;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 10px rgba(37, 110, 255, 0.4);
-        cursor: pointer;
-        transition: transform 0.1s ease;
-
-        ion-icon {
-          font-size: 28px;
-          color: white;
-        }
-
-        &:active {
-          transform: scale(0.95);
-        }
-      }
+    span {
+      font-size: 12px;
+      margin-top: 4px;
     }
   }
 }

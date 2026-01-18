@@ -1,6 +1,6 @@
 import { Component, ViewChild, ElementRef, AfterViewInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonicModule, LoadingController } from '@ionic/angular';
+import { IonButton, IonIcon, LoadingController } from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import { addIcons } from 'ionicons';
 import { closeOutline, checkmarkOutline } from 'ionicons/icons';
@@ -11,7 +11,7 @@ import { DocumentProcessingService } from '../../services/doc-processing.service
     templateUrl: './edge-adjust.component.html',
     styleUrls: ['./edge-adjust.component.scss'],
     standalone: true,
-    imports: [CommonModule, IonicModule]
+    imports: [CommonModule, IonButton, IonIcon]
 })
 export class EdgeAdjustComponent implements AfterViewInit {
 

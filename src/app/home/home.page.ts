@@ -1,6 +1,25 @@
 import { Component, ViewChild, ElementRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonicModule, Platform, LoadingController, ActionSheetController, AlertController } from '@ionic/angular';
+import { 
+  IonHeader, 
+  IonToolbar, 
+  IonTitle, 
+  IonContent, 
+  IonRefresher, 
+  IonRefresherContent, 
+  IonIcon, 
+  IonGrid, 
+  IonRow, 
+  IonCol,
+  IonTabs,
+  IonTab,
+  IonTabBar,
+  IonTabButton,
+  Platform, 
+  LoadingController, 
+  ActionSheetController, 
+  AlertController 
+} from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import { Share } from '@capacitor/share';
 import { addIcons } from 'ionicons';
@@ -25,14 +44,28 @@ import {
 
 import { DocumentProcessingService, ScannedDocument } from '../services/doc-processing.service';
 
-// ... imports
-
 @Component({
   selector: 'app-home',
   templateUrl: './home.page.html',
   styleUrls: ['./home.page.scss'],
   standalone: true,
-  imports: [IonicModule, CommonModule],
+  imports: [
+    CommonModule,
+    IonHeader,
+    IonToolbar,
+    IonTitle,
+    IonContent,
+    IonRefresher,
+    IonRefresherContent,
+    IonIcon,
+    IonGrid,
+    IonRow,
+    IonCol,
+    IonTabs,
+    IonTab,
+    IonTabBar,
+    IonTabButton
+  ],
 })
 export class HomePage implements OnInit {
 
@@ -59,8 +92,7 @@ export class HomePage implements OnInit {
       'document-text-outline': documentTextOutline,
       'checkmark-outline': checkmarkOutline,
       'arrow-back-outline': arrowBackOutline,
-      'folder': folderOutline,
-      'document-text': documentTextOutline,
+      'folder-outline': folderOutline,
       'image-outline': imageOutline,
       'document-outline': documentOutline,
       'ellipsis-vertical': ellipsisVertical,

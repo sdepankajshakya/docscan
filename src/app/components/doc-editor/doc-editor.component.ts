@@ -1,6 +1,6 @@
 import { Component, ViewChild, ElementRef, AfterViewInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonicModule, ActionSheetController } from '@ionic/angular';
+import { IonButton, IonIcon, IonSpinner, ActionSheetController } from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import { addIcons } from 'ionicons';
 import { arrowBackOutline, checkmarkOutline, downloadOutline, imageOutline, documentOutline, chevronBackOutline, chevronForwardOutline } from 'ionicons/icons';
@@ -11,7 +11,7 @@ import { DocumentProcessingService } from '../../services/doc-processing.service
     templateUrl: './doc-editor.component.html',
     styleUrls: ['./doc-editor.component.scss'],
     standalone: true,
-    imports: [CommonModule, IonicModule]
+    imports: [CommonModule, IonButton, IonIcon, IonSpinner]
 })
 export class DocEditorComponent implements AfterViewInit {
 
