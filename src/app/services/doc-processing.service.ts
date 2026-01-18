@@ -5,7 +5,6 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { PDFDocument } from 'pdf-lib';
 import { EdgeDetectionService } from './edge-detection.service';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Preferences } from '@capacitor/preferences';
 
 // Configure PDF.js worker - use local file instead of CDN
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdf.worker.min.js';
@@ -22,6 +21,7 @@ export interface ScannedDocument {
     name: string;
     date: string;
     thumbnail: string | null;
+    displayThumbnail?: string; // RUNTIME ONLY: Base64/Blob URL for UI
     fullImage?: string;
     type?: 'image' | 'pdf';
 }
@@ -59,70 +59,124 @@ export class DocumentProcessingService {
     }
 
     async loadDocuments() {
-        const { value } = await Preferences.get({ key: 'saved_documents' });
-        if (value) {
-            this._documents = JSON.parse(value);
+        try {
+            const readFile = await Filesystem.readFile({
+                path: 'documents.json',
+                directory: Directory.Data,
+                encoding: Encoding.UTF8
+            });
+            if (readFile.data) {
+                this._documents = JSON.parse(readFile.data as string);
 
-            // REVERSE MIGRATION: 
-            // If we find file paths (from the failed experiment), read them back into Base64
-            // so everything is consistent and "as it was".
-            let repairNeeded = false;
-
-            for (const doc of this._documents) {
-                // Repair Thumbnail
-                if (doc.thumbnail && !doc.thumbnail.startsWith('data:')) {
-                    try {
-                        const data = await Filesystem.readFile({
-                            path: doc.thumbnail,
-                            directory: Directory.Data
-                        });
-                        // Capacitor readFile returns base64 content in .data
-                        doc.thumbnail = `data:image/jpeg;base64,${data.data}`;
-                        repairNeeded = true;
-                    } catch (e) {
-                        console.warn('Could not restore thumbnail', doc.name);
-                        // Keep broken reference or null? better null
-                        doc.thumbnail = null;
+                // MIGRATION: If any thumbnail is Base64, move it to a file
+                let migrationNeeded = false;
+                for (const doc of this._documents) {
+                    if (doc.thumbnail && doc.thumbnail.startsWith('data:')) {
+                        try {
+                            const fileName = await this.saveThumbnailToFile(doc.thumbnail);
+                            doc.thumbnail = fileName;
+                            migrationNeeded = true;
+                        } catch (e) {
+                            console.error('Migration failed for thumbnail', e);
+                        }
                     }
                 }
 
-                // Repair Full Image
-                if (doc.fullImage && !doc.fullImage.startsWith('data:')) {
-                    try {
-                        const data = await Filesystem.readFile({
-                            path: doc.fullImage,
-                            directory: Directory.Data
-                        });
-                        const ext = doc.type === 'pdf' ? 'pdf' : 'jpeg';
-                        const prefix = doc.type === 'pdf' ? 'data:application/pdf;base64,' : 'data:image/jpeg;base64,';
-                        doc.fullImage = `${prefix}${data.data}`;
-                        repairNeeded = true;
-                    } catch (e) {
-                        console.warn('Could not restore image', doc.name);
-                    }
+                if (migrationNeeded) {
+                    await this.saveDocumentsList();
                 }
-            }
 
-            if (repairNeeded) {
-                console.log('Restored documents from filesystem to internal storage.');
-                this.saveDocumentsList();
+                console.log('Documents loaded from filesystem:', this._documents.length);
             }
+        } catch (e) {
+            console.warn('Could not load documents.json, starting fresh.', e);
+            this._documents = [];
         }
     }
 
     async addDocument(doc: ScannedDocument) {
+        // If fullImage is Base64, save to filesystem
+        if (doc.fullImage && doc.fullImage.startsWith('data:')) {
+            const timestamp = new Date().getTime();
+            const ext = doc.type === 'pdf' ? 'pdf' : 'jpg';
+            const fileName = `doc_${timestamp}_${Math.floor(Math.random() * 1000)}.${ext}`;
+
+            try {
+                await Filesystem.writeFile({
+                    path: fileName,
+                    data: doc.fullImage,
+                    directory: Directory.Data
+                });
+                doc.fullImage = fileName;
+            } catch (e) {
+                console.error('Failed to save document file', e);
+                throw e;
+            }
+        }
+
+        // If thumbnail is Base64, save to filesystem
+        if (doc.thumbnail && doc.thumbnail.startsWith('data:')) {
+            doc.thumbnail = await this.saveThumbnailToFile(doc.thumbnail);
+        }
+
         this._documents.unshift(doc);
         this.saveDocumentsList();
     }
 
     async updateDocument(originalDoc: ScannedDocument, newImageBase64: string, newThumbnail: string) {
-        originalDoc.fullImage = newImageBase64;
-        originalDoc.thumbnail = newThumbnail;
-        // originalDoc.date = new Date().toLocaleString(); // Optional update date
-        this.saveDocumentsList();
+        let oldFile = originalDoc.fullImage;
+        let oldThumb = originalDoc.thumbnail;
+        const timestamp = new Date().getTime();
+        const ext = originalDoc.type === 'pdf' ? 'pdf' : 'jpg';
+        const fileName = `doc_${timestamp}_${Math.floor(Math.random() * 1000)}.${ext}`;
+
+        try {
+            // Save new high-res file
+            await Filesystem.writeFile({
+                path: fileName,
+                data: newImageBase64,
+                directory: Directory.Data
+            });
+
+            // Save new thumbnail file
+            const thumbFileName = await this.saveThumbnailToFile(newThumbnail);
+
+            originalDoc.fullImage = fileName;
+            originalDoc.thumbnail = thumbFileName;
+
+            this.saveDocumentsList();
+
+            // Clean up old files
+            if (oldFile && !oldFile.startsWith('data:')) {
+                try {
+                    await Filesystem.deleteFile({ path: oldFile, directory: Directory.Data });
+                } catch (e) { }
+            }
+            if (oldThumb && !oldThumb.startsWith('data:')) {
+                try {
+                    await Filesystem.deleteFile({ path: oldThumb, directory: Directory.Data });
+                } catch (e) { }
+            }
+
+        } catch (e) {
+            console.error('Failed to update document files', e);
+        }
     }
 
     async deleteDocument(doc: ScannedDocument) {
+        // Delete full image
+        if (doc.fullImage && !doc.fullImage.startsWith('data:')) {
+            try {
+                await Filesystem.deleteFile({ path: doc.fullImage, directory: Directory.Data });
+            } catch (e) { }
+        }
+        // Delete thumbnail
+        if (doc.thumbnail && !doc.thumbnail.startsWith('data:')) {
+            try {
+                await Filesystem.deleteFile({ path: doc.thumbnail, directory: Directory.Data });
+            } catch (e) { }
+        }
+
         const index = this._documents.findIndex(d => d.name === doc.name && d.date === doc.date);
         if (index > -1) {
             this._documents.splice(index, 1);
@@ -131,6 +185,8 @@ export class DocumentProcessingService {
     }
 
     async renameDocument(doc: ScannedDocument, newName: string) {
+        // ONLY update the display name. DO NOT RENAME THE FILE.
+        // This makes renaming instant.
         doc.name = newName;
         this.saveDocumentsList();
     }
@@ -157,8 +213,14 @@ export class DocumentProcessingService {
 
         if (isWeb) {
             if (format === 'pdf') {
-                const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
-                this.downloadBlob(pdfBlob, fileName);
+                if (doc.type === 'pdf' || imageSrc.startsWith('data:application/pdf')) {
+                    // It's already a PDF, just download it
+                    const blob = this.dataURLToBlob(imageSrc);
+                    this.downloadBlob(blob, fileName);
+                } else {
+                    const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
+                    this.downloadBlob(pdfBlob, fileName);
+                }
             } else {
                 // Download image
                 const link = document.createElement('a');
@@ -176,14 +238,19 @@ export class DocumentProcessingService {
             let dataToWrite = '';
 
             if (format === 'pdf') {
-                const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
-                // Convert Blob to Base64
-                dataToWrite = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(pdfBlob);
-                });
+                if (doc.type === 'pdf' || imageSrc.startsWith('data:application/pdf')) {
+                    // Already a PDF
+                    dataToWrite = imageSrc;
+                } else {
+                    const pdfBlob = await this.exportAsPDF([imageSrc], baseName);
+                    // Convert Blob to Base64
+                    dataToWrite = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(pdfBlob);
+                    });
+                }
             } else {
                 dataToWrite = imageSrc;
             }
@@ -244,17 +311,23 @@ export class DocumentProcessingService {
                 name: `${name}.jpg`,
                 date: new Date().toLocaleString(),
                 thumbnail: thumbnail || null,
-                fullImage: images[0],
+                fullImage: images[0], // Base64, will be converted in addDocument
                 type: 'image'
             });
         }
     }
 
     private async saveDocumentsList() {
-        await Preferences.set({
-            key: 'saved_documents',
-            value: JSON.stringify(this._documents)
-        });
+        try {
+            await Filesystem.writeFile({
+                path: 'documents.json',
+                data: JSON.stringify(this._documents),
+                directory: Directory.Data,
+                encoding: Encoding.UTF8
+            });
+        } catch (e) {
+            console.error('Error saving documents list', e);
+        }
     }
 
     async loadDocumentImage(filePath: string): Promise<string | null> {
@@ -263,13 +336,84 @@ export class DocumentProcessingService {
                 path: filePath,
                 directory: Directory.Data
             });
-            // Web returns result as dataUrl (base64) when requested?
-            // Actually Capacitor result.data is base64 string
-            return `data:image/jpeg;base64,${readFile.data}`;
+
+            // Determine mime type from extension
+            const ext = filePath.split('.').pop()?.toLowerCase();
+            const mimeType = ext === 'pdf' ? 'application/pdf' : 'image/jpeg';
+
+            return `data:${mimeType};base64,${readFile.data}`;
         } catch (e) {
-            console.error('Error loading image', e);
+            console.error('Error loading file', filePath, e);
             return null;
         }
+    }
+
+    /**
+     * Internal helper to save a thumbnail to the filesystem.
+     */
+    private async saveThumbnailToFile(base64: string): Promise<string> {
+        const timestamp = new Date().getTime();
+        const fileName = `thumb_${timestamp}_${Math.floor(Math.random() * 1000)}.jpg`;
+
+        await Filesystem.writeFile({
+            path: fileName,
+            data: base64,
+            directory: Directory.Data
+        });
+
+        return fileName;
+    }
+
+    /**
+     * Converts a thumbnail file path to a URL that can be used in <img> tags.
+     */
+    async resolveThumbnailUrl(doc: ScannedDocument): Promise<string> {
+        if (!doc.thumbnail) return '';
+        if (doc.thumbnail.startsWith('data:')) return doc.thumbnail;
+
+        // Web needs Data URL because convertFileSrc is finicky with IndexedDB
+        const isWeb = !Capacitor.isNativePlatform();
+        if (isWeb) {
+            const data = await this.loadDocumentImage(doc.thumbnail);
+            return data || '';
+        } else {
+            return Capacitor.convertFileSrc(doc.thumbnail);
+        }
+    }
+
+    /**
+     * Extracts images from a base64 PDF string.
+     */
+    async extractPagesFromPDFData(base64Data: string): Promise<string[]> {
+        // Convert base64 to Uint8Array/ArrayBuffer
+        const binaryString = atob(base64Data.split(',')[1] || base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const pdf = await pdfjsLib.getDocument({ data: bytes.buffer }).promise;
+        const totalPages = pdf.numPages;
+        const pages: string[] = [];
+
+        for (let i = 1; i <= totalPages; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 2.5 }); // Increased from 1.5
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d')!;
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({
+                canvasContext: context,
+                viewport: viewport,
+                canvas: canvas
+            }).promise;
+
+            pages.push(canvas.toDataURL('image/jpeg', 0.95)); // Increased from 0.8
+        }
+        return pages;
     }
 
     // Active Editor State Methods
@@ -318,7 +462,7 @@ export class DocumentProcessingService {
      * @param dataUrl The base64 data URL of the image.
      * @returns Promise containing the original and working ImageDatas.
      */
-    loadImageToCanvas(canvas: HTMLCanvasElement, dataUrl: string): Promise<{ original: ImageData, working: ImageData }> {
+    loadImageToCanvas(canvas: HTMLCanvasElement, dataUrl: string, maxWidth: number = 2500): Promise<{ original: ImageData, working: ImageData }> {
         return new Promise((resolve, reject) => {
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) {
@@ -330,8 +474,7 @@ export class DocumentProcessingService {
             img.src = dataUrl;
 
             img.onload = () => {
-                const MAX_WIDTH = 800; // Reduced from 1080 for faster processing
-                const scale = Math.min(1, MAX_WIDTH / img.width);
+                const scale = Math.min(1, maxWidth / img.width);
 
                 canvas.width = img.width * scale;
                 canvas.height = img.height * scale;
@@ -357,7 +500,7 @@ export class DocumentProcessingService {
      */
     applyFilter(
         canvas: HTMLCanvasElement,
-        filter: 'original' | 'grayscale' | 'adaptive-threshold' | 'high-contrast' | 'invert' | 'sepia' | 'brightness' | 'vibrant',
+        filter: 'original' | 'grayscale' | 'adaptive-threshold' | 'high-contrast' | 'invert' | 'sepia' | 'brightness' | 'vibrant' | 'print-bw',
         originalData: ImageData
     ): void {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -378,10 +521,7 @@ export class DocumentProcessingService {
         const data = workingData.data;
 
         if (filter === 'grayscale') {
-            for (let i = 0; i < data.length; i += 4) {
-                const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                data[i] = data[i + 1] = data[i + 2] = gray;
-            }
+            this.applyGrayscale(data);
         } else if (filter === 'adaptive-threshold') {
             this.applyAdaptiveThreshold(workingData, originalData.width, originalData.height);
         } else if (filter === 'high-contrast') {
@@ -394,9 +534,57 @@ export class DocumentProcessingService {
             this.applyBrightness(data, 40);
         } else if (filter === 'vibrant') {
             this.applyVibrant(data);
+        } else if (filter === 'print-bw') {
+            this.applyPrintBW(data);
         }
 
         ctx.putImageData(workingData, 0, 0);
+    }
+
+    /**
+     * Applies grayscale filter.
+     * Uses simple average formula.
+     */
+    private applyGrayscale(data: Uint8ClampedArray) {
+        for (let i = 0; i < data.length; i += 4) {
+            // Revert to simple average as requested
+            const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            data[i] = data[i + 1] = data[i + 2] = gray;
+        }
+    }
+
+    /**
+     * Applies "Print B&W" filter.
+     * darker text/midtones for better printing while preserving image visibility.
+     * Uses Gamma Correction.
+     */
+    private applyPrintBW(data: Uint8ClampedArray) {
+        const gamma = 1.4; // Gamma value > 1 darkens midtones/shadows
+        const gammaCorrection = 1 / gamma;
+
+        // Pre-calculate look-up table for performance
+        const lut = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) {
+            lut[i] = 255 * Math.pow(i / 255, gamma); // Actually we want to darken, so we raise to power gamma directly if input is normalized 0-1.
+            // Wait, standard Gamma correction is usually Out = In^(1/gamma) to brighten.
+            // To DARKEN, we want Out < In for In < 1. 
+            // If In=0.5, Out=0.5^1.4 ≈ 0.37 (darker). 
+            // So we use power of gamma, no inversion needed if gamma > 1.
+        }
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+
+            // 1. Convert to grayscale using luminance (more accurate than average)
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            // 2. Apply darkness lookup
+            const enhanced = lut[Math.floor(gray)];
+
+            data[i] = data[i + 1] = data[i + 2] = enhanced;
+        }
     }
 
     /**
@@ -537,7 +725,7 @@ export class DocumentProcessingService {
 
         for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
             const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 1.5 }); // Reduced from 2.0 for faster processing
+            const viewport = page.getViewport({ scale: 2.5 }); // Increased from 1.5
 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d')!;
@@ -550,7 +738,7 @@ export class DocumentProcessingService {
                 canvas: canvas
             }).promise;
 
-            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8); // Reduced quality for faster processing
+            const imageDataUrl = canvas.toDataURL('image/jpeg', 0.95); // Increased from 0.8
             onPageProcessed(imageDataUrl, pageNum, totalPages);
         }
     }
@@ -571,6 +759,10 @@ export class DocumentProcessingService {
         const pdfDoc = await PDFDocument.create();
 
         for (const imageData of images) {
+            if (imageData.startsWith('data:application/pdf')) {
+                console.warn('Skipping PDF attempt to embed in PDF via image embedding. Use merge instead.');
+                continue;
+            }
             // Remove data URL prefix
             const base64Data = imageData.split(',')[1];
 

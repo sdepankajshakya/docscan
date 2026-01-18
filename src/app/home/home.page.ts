@@ -79,6 +79,13 @@ export class HomePage implements OnInit {
   async refreshDocuments() {
     await this.docService.loadDocuments();
     this.documents = this.docService.documents;
+
+    // Pre-load thumbnails for high performance and Web compatibility
+    for (const doc of this.documents) {
+      if (!doc.displayThumbnail) {
+        doc.displayThumbnail = await this.docService.resolveThumbnailUrl(doc);
+      }
+    }
   }
 
   get filteredDocuments(): ScannedDocument[] {
@@ -236,6 +243,30 @@ export class HomePage implements OnInit {
       }
     }
 
+    // Check if it is a PDF -> Extract pages
+    if (doc.type === 'pdf' || imageSrc.startsWith('data:application/pdf')) {
+      try {
+        loading.message = 'Processing PDF pages...';
+        const pages = await this.docService.extractPagesFromPDFData(imageSrc);
+        await loading.dismiss();
+
+        if (pages.length > 0) {
+          this.docService.setActiveDocument({
+            images: pages,
+            image: pages[0],
+            originalName: doc.name,
+            originalDoc: doc
+          });
+          this.router.navigate(['/editor']);
+        }
+        return;
+      } catch (e) {
+        console.error('Error parsing PDF', e);
+        await loading.dismiss();
+        return; // Or show error toast
+      }
+    }
+
     await loading.dismiss();
 
     this.docService.setActiveDocument({
@@ -376,5 +407,9 @@ export class HomePage implements OnInit {
     });
 
     this.router.navigate(['/edge-adjust']);
+  }
+
+  getThumbnailUrl(doc: ScannedDocument): string {
+    return doc.displayThumbnail || '';
   }
 }

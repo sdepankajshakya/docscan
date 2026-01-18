@@ -48,7 +48,7 @@
           <div class="doc-card" (click)="openDocument(doc)">
             <div class="doc-preview">
               @if (doc.thumbnail) {
-              <img [src]="doc.thumbnail" alt="doc thumbnail" class="doc-thumb-img" />
+              <img [src]="getThumbnailUrl(doc)" alt="doc thumbnail" class="doc-thumb-img" />
               } @else if (doc.type === 'pdf') {
               <ion-icon name="document-outline" color="primary"></ion-icon>
               } @else {
