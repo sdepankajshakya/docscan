@@ -119,6 +119,9 @@ export class DocumentProcessingService {
             doc.thumbnail = await this.saveThumbnailToFile(doc.thumbnail);
         }
 
+        // Pre-load displayThumbnail so it appears immediately in the UI
+        doc.displayThumbnail = await this.resolveThumbnailUrl(doc);
+
         this._documents.unshift(doc);
         this.saveDocumentsList();
     }
@@ -143,6 +146,9 @@ export class DocumentProcessingService {
 
             originalDoc.fullImage = fileName;
             originalDoc.thumbnail = thumbFileName;
+
+            // Update displayThumbnail so the new thumbnail appears immediately
+            originalDoc.displayThumbnail = await this.resolveThumbnailUrl(originalDoc);
 
             this.saveDocumentsList();
 
@@ -377,7 +383,17 @@ export class DocumentProcessingService {
             const data = await this.loadDocumentImage(doc.thumbnail);
             return data || '';
         } else {
-            return Capacitor.convertFileSrc(doc.thumbnail);
+            // On native platforms, get the full URI first
+            try {
+                const uriResult = await Filesystem.getUri({
+                    path: doc.thumbnail,
+                    directory: Directory.Data
+                });
+                return Capacitor.convertFileSrc(uriResult.uri);
+            } catch (e) {
+                console.error('Error resolving thumbnail URI', e);
+                return '';
+            }
         }
     }
 

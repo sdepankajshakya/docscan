@@ -1,25 +1,6 @@
 import { Component, ViewChild, ElementRef, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { 
-  IonHeader, 
-  IonToolbar, 
-  IonTitle, 
-  IonContent, 
-  IonRefresher, 
-  IonRefresherContent, 
-  IonIcon, 
-  IonGrid, 
-  IonRow, 
-  IonCol,
-  IonTabs,
-  IonTab,
-  IonTabBar,
-  IonTabButton,
-  Platform, 
-  LoadingController, 
-  ActionSheetController, 
-  AlertController 
-} from '@ionic/angular/standalone';
+import { IonHeader, IonToolbar, IonTitle, IonContent, IonRefresher, IonRefresherContent, IonIcon, IonGrid, IonRow, IonCol, IonTabs, IonTab, IonTabBar, IonTabButton, Platform, LoadingController, ActionSheetController, AlertController } from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import { Share } from '@capacitor/share';
 import { addIcons } from 'ionicons';
@@ -65,7 +46,7 @@ import { DocumentProcessingService, ScannedDocument } from '../services/doc-proc
     IonTab,
     IonTabBar,
     IonTabButton
-  ],
+],
 })
 export class HomePage implements OnInit {
 
@@ -176,7 +157,7 @@ export class HomePage implements OnInit {
           icon: 'trash-outline',
           handler: async () => {
             await this.docService.deleteDocument(doc);
-            this.refreshDocuments();
+            this.documents = this.docService.documents;
           }
         }
       ],
