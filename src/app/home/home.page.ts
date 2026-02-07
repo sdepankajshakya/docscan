@@ -198,31 +198,70 @@ export class HomePage implements OnInit {
   async shareDocument(doc: ScannedDocument) {
     if (!doc.fullImage) return;
 
+    const loading = await this.loadingCtrl.create({
+      message: 'Preparing document for sharing...',
+      spinner: 'crescent'
+    });
+    await loading.present();
+
     try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const { Capacitor } = await import('@capacitor/core');
+
       let shareUrl = doc.fullImage;
 
-      // If stored as filename, resolve to full URI
+      // If stored as filename, copy to shareable location
       if (!doc.fullImage.startsWith('data:')) {
-        import('@capacitor/filesystem').then(async ({ Filesystem, Directory }) => {
-          try {
+        try {
+          // Load the file from private storage
+          const fileContent = await Filesystem.readFile({
+            path: doc.fullImage,
+            directory: Directory.Data
+          });
+
+          // Copy to Cache directory (shareable on Android)
+          const fileName = doc.fullImage.split('/').pop() || 'document.jpg';
+          await Filesystem.writeFile({
+            path: fileName,
+            data: fileContent.data,
+            directory: Directory.Cache
+          });
+
+          // Get shareable URI
+          if (Capacitor.getPlatform() === 'android') {
             const uriResult = await Filesystem.getUri({
-              path: doc.fullImage!,
-              directory: Directory.Data
+              path: fileName,
+              directory: Directory.Cache
             });
             shareUrl = uriResult.uri;
-
-            await Share.share({
-              title: doc.name,
-              text: 'Shared via DocScan',
-              url: shareUrl,
-              dialogTitle: 'Share Document'
+          } else {
+            // iOS
+            const uriResult = await Filesystem.getUri({
+              path: fileName,
+              directory: Directory.Cache
             });
-          } catch (e) {
-            console.error('Error resolving file URI', e);
+            shareUrl = uriResult.uri;
           }
-        });
+
+          await loading.dismiss();
+
+          await Share.share({
+            title: doc.name,
+            text: 'Shared via DocScan',
+            url: shareUrl,
+            dialogTitle: 'Share Document'
+          });
+
+          // Clean up cache after sharing
+          this.cleanupCacheFiles();
+        } catch (e) {
+          await loading.dismiss();
+          console.error('Error sharing document:', e);
+          alert('Failed to share document. Please try again.');
+        }
       } else {
-        // Web/Data URL sharing (might be limited)
+        // Web/Data URL sharing
+        await loading.dismiss();
         await Share.share({
           title: doc.name,
           text: 'Shared via DocScan',
@@ -232,6 +271,39 @@ export class HomePage implements OnInit {
       }
     } catch (e) {
       console.error('Error sharing', e);
+    }
+  }
+
+  /**
+   * Clean up old cache files to prevent storage bloat
+   * Removes files older than 24 hours
+   */
+  private async cleanupCacheFiles() {
+    try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const files = await Filesystem.readdir({
+        path: '.',
+        directory: Directory.Cache
+      });
+
+      const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+
+      for (const file of files.files) {
+        // Delete files older than 24 hours
+        if (file.mtime && file.mtime < oneDayAgo) {
+          try {
+            await Filesystem.deleteFile({
+              path: file.name,
+              directory: Directory.Cache
+            });
+            console.log('Cleaned up cache file:', file.name);
+          } catch (e) {
+            console.warn('Failed to delete cache file:', file.name, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Cache cleanup failed (non-critical):', e);
     }
   }
 
