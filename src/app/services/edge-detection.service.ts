@@ -73,68 +73,55 @@ export class EdgeDetectionService {
                     // Create OpenCV Mat from canvas
                     const src = cv.imread(canvas);
                     const gray = new cv.Mat();
-                    const blur = new cv.Mat();
-                    const edges = new cv.Mat();
+                    const binary = new cv.Mat();
                     const contours = new cv.MatVector();
                     const hierarchy = new cv.Mat();
 
                     // Convert to grayscale
                     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-                    // Apply Gaussian blur
-                    cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
-
-                    // Apply Canny edge detection
-                    cv.Canny(blur, edges, 75, 200);
+                    // Apply threshold to get binary image
+                    cv.threshold(gray, binary, 127, 255, cv.THRESH_BINARY);
 
                     // Find contours
-                    cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+                    cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                    let corners: Array<{ x: number; y: number }> | null = null;
+                    let maxArea = 0;
 
                     // Find the largest contour
-                    let maxArea = 0;
-                    let maxContourIndex = -1;
-
                     for (let i = 0; i < contours.size(); i++) {
                         const contour = contours.get(i);
                         const area = cv.contourArea(contour);
 
                         if (area > maxArea) {
                             maxArea = area;
-                            maxContourIndex = i;
+                            
+                            // Get bounding rectangle
+                            const rect = cv.boundingRect(contour);
+                            
+                            // Create corners from bounding rectangle
+                            corners = [
+                                { x: rect.x, y: rect.y },                              // top-left
+                                { x: rect.x + rect.width, y: rect.y },                 // top-right
+                                { x: rect.x + rect.width, y: rect.y + rect.height },   // bottom-right
+                                { x: rect.x, y: rect.y + rect.height }                 // bottom-left
+                            ];
                         }
-                    }
-
-                    let corners: Array<{ x: number; y: number }> | null = null;
-
-                    if (maxContourIndex >= 0) {
-                        const contour = contours.get(maxContourIndex);
-                        const perimeter = cv.arcLength(contour, true);
-                        const approx = new cv.Mat();
-
-                        // Approximate polygon
-                        cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
-
-                        // If we found a 4-sided polygon
-                        if (approx.rows === 4) {
-                            corners = [];
-                            for (let i = 0; i < 4; i++) {
-                                corners.push({
-                                    x: approx.data32S[i * 2],
-                                    y: approx.data32S[i * 2 + 1]
-                                });
-                            }
-                        }
-
-                        approx.delete();
                     }
 
                     // Clean up
                     src.delete();
                     gray.delete();
-                    blur.delete();
-                    edges.delete();
+                    binary.delete();
                     contours.delete();
                     hierarchy.delete();
+
+                    if (corners) {
+                        console.log('Edge detection found corners:', corners);
+                    } else {
+                        console.warn('Edge detection failed - no contours found');
+                    }
 
                     resolve(corners);
                 };

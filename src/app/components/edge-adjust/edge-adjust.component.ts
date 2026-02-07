@@ -65,6 +65,7 @@ export class EdgeAdjustComponent implements AfterViewInit {
 
         this.img.onload = () => {
             const canvas = this.canvasRef.nativeElement;
+            const cornerMarkerRadius = 20; // Account for the corner markers
 
             // Calculate scale to fit viewport with margin for corners
             const maxWidth = window.innerWidth - 80;
@@ -74,28 +75,31 @@ export class EdgeAdjustComponent implements AfterViewInit {
             const scaleY = maxHeight / this.img.height;
             this.scale = Math.min(scaleX, scaleY, 0.85);
 
-            // Set canvas to scaled size
-            const displayWidth = this.img.width * this.scale;
-            const displayHeight = this.img.height * this.scale;
+            // Set canvas to scaled size with padding for corner markers
+            const displayWidth = this.img.width * this.scale + cornerMarkerRadius * 2;
+            const displayHeight = this.img.height * this.scale + cornerMarkerRadius * 2;
 
             canvas.width = displayWidth;
             canvas.height = displayHeight;
 
+            // Store padding offset for drawing
+            const padding = cornerMarkerRadius;
+
             // Set default corners or use detected ones
             if (this.detectedCorners && this.detectedCorners.length === 4) {
-                // Scale detected corners to canvas size
+                // Scale detected corners to canvas size and add padding offset
                 this.corners = this.detectedCorners.map(c => ({
-                    x: c.x * this.scale,
-                    y: c.y * this.scale
+                    x: c.x * this.scale + padding,
+                    y: c.y * this.scale + padding
                 }));
             } else {
                 // Default corners (full canvas with padding)
-                const padding = 30;
+                const defaultPadding = 30;
                 this.corners = [
-                    { x: padding, y: padding },
-                    { x: canvas.width - padding, y: padding },
-                    { x: canvas.width - padding, y: canvas.height - padding },
-                    { x: padding, y: canvas.height - padding }
+                    { x: padding + defaultPadding, y: padding + defaultPadding },
+                    { x: displayWidth - padding - defaultPadding, y: padding + defaultPadding },
+                    { x: displayWidth - padding - defaultPadding, y: displayHeight - padding - defaultPadding },
+                    { x: padding + defaultPadding, y: displayHeight - padding - defaultPadding }
                 ];
             }
 
@@ -116,15 +120,24 @@ export class EdgeAdjustComponent implements AfterViewInit {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) return;
 
+        const cornerMarkerRadius = 20;
+        const padding = cornerMarkerRadius;
+
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Draw image first
-        ctx.drawImage(this.img, 0, 0, canvas.width, canvas.height);
-
-        // Draw semi-transparent overlay over entire image
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        // Draw padding background (dark)
+        ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw image with padding offset
+        const scaledWidth = this.img.width * this.scale;
+        const scaledHeight = this.img.height * this.scale;
+        ctx.drawImage(this.img, padding, padding, scaledWidth, scaledHeight);
+
+        // Draw semi-transparent overlay over entire image (lighter for better visibility)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(padding, padding, scaledWidth, scaledHeight);
 
         // Clear the overlay inside the document area
         if (this.corners.length === 4) {
@@ -141,7 +154,7 @@ export class EdgeAdjustComponent implements AfterViewInit {
 
             // Draw border around document
             ctx.strokeStyle = '#4285F4';
-            ctx.lineWidth = 4;
+            ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(this.corners[0].x, this.corners[0].y);
             ctx.lineTo(this.corners[1].x, this.corners[1].y);
@@ -150,18 +163,18 @@ export class EdgeAdjustComponent implements AfterViewInit {
             ctx.closePath();
             ctx.stroke();
 
-            // Draw corner points
+            // Draw smaller corner markers
             this.corners.forEach((corner) => {
                 // Outer circle (white)
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
-                ctx.arc(corner.x, corner.y, 25, 0, 2 * Math.PI);
+                ctx.arc(corner.x, corner.y, 12, 0, 2 * Math.PI);
                 ctx.fill();
 
                 // Inner circle (blue)
                 ctx.fillStyle = '#4285F4';
                 ctx.beginPath();
-                ctx.arc(corner.x, corner.y, 20, 0, 2 * Math.PI);
+                ctx.arc(corner.x, corner.y, 10, 0, 2 * Math.PI);
                 ctx.fill();
             });
         }
@@ -177,13 +190,13 @@ export class EdgeAdjustComponent implements AfterViewInit {
         const x = touch.clientX - rect.left;
         const y = touch.clientY - rect.top;
 
-        // Find if touching any corner
+        // Find if touching any corner (reduced radius to match smaller markers)
         for (let i = 0; i < this.corners.length; i++) {
             const dx = x - this.corners[i].x;
             const dy = y - this.corners[i].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 50) {
+            if (distance < 28) {
                 this.draggingIndex = i;
                 break;
             }
@@ -219,13 +232,13 @@ export class EdgeAdjustComponent implements AfterViewInit {
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
 
-        // Find if clicking any corner
+        // Find if clicking any corner (reduced radius to match smaller markers)
         for (let i = 0; i < this.corners.length; i++) {
             const dx = x - this.corners[i].x;
             const dy = y - this.corners[i].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 50) {
+            if (distance < 28) {
                 this.draggingIndex = i;
                 break;
             }
@@ -258,9 +271,13 @@ export class EdgeAdjustComponent implements AfterViewInit {
 
     async confirm() {
         // Scale corners back to original image coordinates
+        // Account for the padding offset that was added to the canvas
+        const cornerMarkerRadius = 20;
+        const padding = cornerMarkerRadius;
+
         const originalCorners = this.corners.map(c => ({
-            x: c.x / this.scale,
-            y: c.y / this.scale
+            x: (c.x - padding) / this.scale,
+            y: (c.y - padding) / this.scale
         }));
 
         const loading = await this.loadingCtrl.create({
