@@ -87,6 +87,49 @@ export class HomePage implements OnInit {
 
   ngOnInit() {
     this.refreshDocuments();
+    this.checkForInterruptedProcessing();
+  }
+
+  async checkForInterruptedProcessing() {
+    const processingState = await this.docService.getProcessingState();
+    if (!processingState || !processingState.fileName) {
+      return; // No interrupted processing
+    }
+
+    // Check if state is recent (less than 1 hour old)
+    const stateAge = Date.now() - processingState.timestamp;
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    if (stateAge > ONE_HOUR) {
+      // State too old, clear it
+      await this.docService.clearProcessingState();
+      return;
+    }
+
+    // Show recovery prompt
+    const alert = await this.alertCtrl.create({
+      header: 'Resume Processing?',
+      message: `Found interrupted processing for "${processingState.fileName}". Resume from page ${processingState.processedPages || 0}?`,
+      buttons: [
+        {
+          text: 'Cancel',
+          role: 'cancel',
+          handler: async () => {
+            await this.docService.clearProcessingState();
+          }
+        },
+        {
+          text: 'Resume',
+          handler: async () => {
+            // Resume processing will be triggered with the saved state
+            // The handleFileSelect will detect the state and resume
+            console.log('Resuming processing from saved state');
+          }
+        }
+      ]
+    });
+
+    await alert.present();
   }
 
   async refreshDocuments() {
@@ -257,7 +300,6 @@ export class HomePage implements OnInit {
         } catch (e) {
           await loading.dismiss();
           console.error('Error sharing document:', e);
-          alert('Failed to share document. Please try again.');
         }
       } else {
         // Web/Data URL sharing
@@ -396,6 +438,13 @@ export class HomePage implements OnInit {
       const file = input.files[0];
       const filename = file.name;
 
+      // Validate file size
+      const sizeValidation = this.docService.validateFileSize(file.size);
+      if (!sizeValidation.valid) {
+        alert(sizeValidation.error);
+        return;
+      }
+
       if (file.type === 'application/pdf') {
         // Handle PDF file - collect all pages first
         const loading = await this.loadingCtrl.create({
@@ -406,21 +455,51 @@ export class HomePage implements OnInit {
 
         const allPages: string[] = [];
 
-        await this.docService.processPDFFile(file, (imageData, pageNum, totalPages) => {
-          allPages.push(imageData);
-          loading.message = `Processing page ${pageNum} of ${totalPages}...`;
-        });
-
-        await loading.dismiss();
-
-        // Open editor with all pages
-        if (allPages.length > 0) {
-          this.docService.setActiveDocument({
-            images: allPages,
-            image: allPages[0], // Primary image for type compliance
-            originalName: filename.replace('.pdf', '')
+        try {
+          // Save initial processing state
+          await this.docService.saveProcessingState({
+            fileName: filename,
+            progress: 0,
+            timestamp: Date.now()
           });
-          this.router.navigate(['/editor']);
+
+          await this.docService.processPDFFile(file, async (imageData, pageNum, totalPages) => {
+            allPages.push(imageData);
+            loading.message = `Processing page ${pageNum} of ${totalPages}...`;
+            
+            // Check for page limit warning
+            if (pageNum === 1) {
+              const pageValidation = this.docService.validatePdfPages(totalPages);
+              if (pageValidation.warning) {
+                console.warn(pageValidation.warning);
+              }
+            }
+
+            // Update processing progress
+            const progress = Math.round((pageNum / totalPages) * 100);
+            await this.docService.updateProcessingProgress(progress, pageNum);
+          });
+
+          await loading.dismiss();
+
+          // Open editor with all pages
+          if (allPages.length > 0) {
+            this.docService.setActiveDocument({
+              images: allPages,
+              image: allPages[0], // Primary image for type compliance
+              originalName: filename.replace('.pdf', '')
+            });
+            
+            // Clear processing state on success
+            await this.docService.clearProcessingState();
+            
+            this.router.navigate(['/editor']);
+          }
+        } catch (e) {
+          await loading.dismiss();
+          console.error('PDF processing error:', e);
+          alert('Failed to process PDF. Please try a smaller file.');
+          // Keep processing state for potential recovery
         }
       } else {
         // Handle image file

@@ -39,19 +39,139 @@ export interface EdgeDetectionState {
     originalName?: string;
 }
 
+export interface ProcessingState {
+    fileName: string;
+    progress: number; // 0-100
+    totalPages?: number;
+    processedPages?: number;
+    timestamp: number;
+    data?: any;
+}
+
 @Injectable({
     providedIn: 'root'
 })
 export class DocumentProcessingService {
 
+    // File size limits (50MB)
+    private readonly MAX_FILE_SIZE = 50 * 1024 * 1024;
+    // PDF page limits
+    private readonly MAX_PDF_PAGES = 100;
+
     private edgeDetectionService = inject(EdgeDetectionService);
 
     // State management
     private _documents: ScannedDocument[] = [];
+    private _processingState: ProcessingState | null = null;
     private _activeDocument: ActiveDocumentState | null = null;
     private _edgeDetectionState: EdgeDetectionState | null = null;
 
-    constructor() { }
+    constructor() {
+        this.loadProcessingState();
+    }
+
+    // File Validation Methods
+    /**
+     * Validate file size before processing
+     * @returns { valid: boolean, error?: string }
+     */
+    validateFileSize(fileSizeInBytes: number): { valid: boolean; error?: string } {
+        if (fileSizeInBytes > this.MAX_FILE_SIZE) {
+            const maxSizeMB = this.MAX_FILE_SIZE / (1024 * 1024);
+            return {
+                valid: false,
+                error: `File too large. Maximum size: ${maxSizeMB}MB`
+            };
+        }
+        return { valid: true };
+    }
+
+    /**
+     * Validate PDF page count
+     * @returns { valid: boolean, warning?: string }
+     */
+    validatePdfPages(pageCount: number): { valid: boolean; warning?: string } {
+        if (pageCount > this.MAX_PDF_PAGES) {
+            return {
+                valid: true,
+                warning: `Large PDF detected (${pageCount} pages). This may take longer to process. Processing will continue in background.`
+            };
+        }
+        return { valid: true };
+    }
+
+    // Processing State Management
+    /**
+     * Save processing state to persistent storage
+     */
+    async saveProcessingState(state: ProcessingState): Promise<void> {
+        try {
+            this._processingState = state;
+            await Filesystem.writeFile({
+                path: 'processing_state.json',
+                data: JSON.stringify(state),
+                directory: Directory.Data,
+                encoding: Encoding.UTF8
+            });
+        } catch (e) {
+            console.error('Failed to save processing state:', e);
+        }
+    }
+
+    /**
+     * Load processing state from storage
+     */
+    private async loadProcessingState(): Promise<void> {
+        try {
+            const file = await Filesystem.readFile({
+                path: 'processing_state.json',
+                directory: Directory.Data,
+                encoding: Encoding.UTF8
+            });
+            this._processingState = JSON.parse(file.data as string);
+            console.log('Processing state loaded:', this._processingState?.fileName);
+        } catch (e) {
+            // No saved state - this is normal on first run
+            this._processingState = null;
+        }
+    }
+
+    /**
+     * Get current processing state
+     */
+    async getProcessingState(): Promise<ProcessingState | null> {
+        return this._processingState;
+    }
+
+    /**
+     * Clear processing state (call when processing completes)
+     */
+    async clearProcessingState(): Promise<void> {
+        try {
+            this._processingState = null;
+            await Filesystem.deleteFile({
+                path: 'processing_state.json',
+                directory: Directory.Data
+            });
+            console.log('Processing state cleared');
+        } catch (e) {
+            // File might not exist - that's okay
+        }
+    }
+
+    /**
+     * Update processing progress
+     */
+    async updateProcessingProgress(progress: number, processedPages?: number): Promise<void> {
+        if (this._processingState) {
+            this._processingState.progress = progress;
+            if (processedPages !== undefined) {
+                this._processingState.processedPages = processedPages;
+            }
+            this._processingState.timestamp = Date.now();
+            await this.saveProcessingState(this._processingState);
+        }
+    }
 
     // Document State Methods
     get documents(): ScannedDocument[] {

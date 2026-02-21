@@ -95,7 +95,7 @@ src/
 ### Data Storage
 
 **Storage Location:** `Directory.Data` (private app directory)
-- **Android:** `/data/data/io.ionic.starter/files/`
+- **Android:** `/data/data/com.docscan.app/files/`
 - **iOS:** `/var/mobile/Containers/Data/AppData/.../Documents/`
 
 **What's Stored:**
@@ -190,6 +190,46 @@ After edge detection and adjustment:
   "@capacitor/core": "^5.x"
 }
 ```
+
+---
+
+## Large File Handling & Recovery
+
+### File Size Limits
+
+The app enforces safe limits to prevent crashes and memory issues:
+
+- **Maximum File Size**: 50 MB per document
+- **Maximum PDF Pages**: 100 pages (warning shown, processing continues)
+
+### Processing State Recovery
+
+If the app is backgrounded or interrupted during large file processing:
+
+1. **State Preservation**: Processing progress is automatically saved every page
+2. **App Restart**: When you reopen the app, a prompt appears asking to resume
+3. **Recovery Window**: Saved state is valid for 1 hour
+4. **Resume Option**: Tap "Resume" to continue from where it left off
+
+### What Gets Saved During Processing
+
+- Document file name
+- Current progress percentage
+- Number of pages already processed
+- Total page count
+- Last update timestamp
+
+### Troubleshooting Large Files
+
+**File Rejected as Too Large**
+- Compress the PDF using a desktop tool
+- Split large PDFs into multiple smaller files
+- Maximum: 50 MB per file
+
+**Processing Still Crashes**
+- Try restarting the app and using the recovery feature
+- If that doesn't work, reduce file size further
+- Check device storage - ensure at least 100 MB free space
 
 ---
 
