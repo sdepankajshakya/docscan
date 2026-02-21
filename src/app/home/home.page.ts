@@ -1,9 +1,11 @@
-import { Component, ViewChild, ElementRef, inject, OnInit } from '@angular/core';
+import { Component, ViewChild, ElementRef, inject, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonHeader, IonToolbar, IonTitle, IonContent, IonRefresher, IonRefresherContent, IonIcon, IonGrid, IonRow, IonCol, IonTabs, IonTab, IonTabBar, IonTabButton, Platform, LoadingController, ActionSheetController, AlertController } from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import { Share } from '@capacitor/share';
+import { App } from '@capacitor/app';
 import { addIcons } from 'ionicons';
+import { Subscription } from 'rxjs';
 import {
   camera,
   searchOutline,
@@ -48,7 +50,7 @@ import { DocumentProcessingService, ScannedDocument } from '../services/doc-proc
     IonTabButton
 ],
 })
-export class HomePage implements OnInit {
+export class HomePage implements OnInit, OnDestroy {
 
   @ViewChild('fileInput', { static: false })
   fileInput!: ElementRef<HTMLInputElement>;
@@ -61,6 +63,7 @@ export class HomePage implements OnInit {
   private actionSheetCtrl = inject(ActionSheetController);
   private alertCtrl = inject(AlertController);
   private router = inject(Router);
+  private backButtonSub?: Subscription;
 
   documents: ScannedDocument[] = [];
 
@@ -86,8 +89,22 @@ export class HomePage implements OnInit {
   }
 
   ngOnInit() {
+    this.setupBackButtonHandler();
     this.refreshDocuments();
     this.checkForInterruptedProcessing();
+  }
+
+  ngOnDestroy() {
+    this.backButtonSub?.unsubscribe();
+  }
+
+  private setupBackButtonHandler() {
+    this.backButtonSub?.unsubscribe();
+    this.backButtonSub = this.platform.backButton.subscribeWithPriority(-1, () => {
+      if (this.platform.is('android') && this.router.url === '/home') {
+        App.exitApp();
+      }
+    });
   }
 
   async checkForInterruptedProcessing() {

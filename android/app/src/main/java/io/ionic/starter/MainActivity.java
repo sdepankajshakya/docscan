@@ -1,5 +1,6 @@
-package io.ionic.starter;
+package com.docscan.app;
 
+import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
@@ -16,7 +17,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setNavigationBarLight(); // Apply initial navigation bar styling
+        setSystemBarsForTheme(); // Apply initial system bar styling
         setupSystemUiListener(); // Set up listener to maintain styling
     }
     
@@ -27,7 +28,13 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        setNavigationBarLight(); // Re-apply navigation bar styling
+        setSystemBarsForTheme(); // Re-apply based on current theme
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        setSystemBarsForTheme();
     }
     
     /**
@@ -38,7 +45,7 @@ public class MainActivity extends BridgeActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            setNavigationBarLight(); // Re-apply when window regains focus
+            setSystemBarsForTheme(); // Re-apply when window regains focus
         }
     }
     
@@ -52,7 +59,7 @@ public class MainActivity extends BridgeActivity {
         decorView.setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
             @Override
             public void onSystemUiVisibilityChange(int visibility) {
-                setNavigationBarLight(); // Re-apply when system UI changes
+                setSystemBarsForTheme(); // Re-apply when system UI changes
             }
         });
     }
@@ -66,34 +73,55 @@ public class MainActivity extends BridgeActivity {
      * - Android 8-10 (API 26-29): Uses deprecated systemUiVisibility flags
      * - Android 5+ (API 21+): Can set navigation bar color
      */
-    private void setNavigationBarLight() {
+    private boolean isDarkModeEnabled() {
+        int nightModeFlags = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return nightModeFlags == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    private void setSystemBarsForTheme() {
         Window window = getWindow();
+        boolean isDarkMode = isDarkModeEnabled();
+        int darkSurfaceColor = 0xFF121212;
+        int lightSurfaceColor = 0xFFFFFFFF;
         
-        // Set navigation bar background to white (works on Android 5.0+)
+        // Set status and navigation bar background colors
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            window.setNavigationBarColor(0xFFFFFFFF); // White color
+            int systemBarColor = isDarkMode ? darkSurfaceColor : lightSurfaceColor;
+            window.setNavigationBarColor(systemBarColor);
+            window.setStatusBarColor(systemBarColor);
         }
         
         // For Android 11 and above - use modern WindowInsetsController API
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
-                // Set both navigation bar and status bar to use dark icons/buttons
-                controller.setSystemBarsAppearance(
-                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS | 
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS | 
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                );
+                int mask = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+
+                if (isDarkMode) {
+                    // Dark background -> light icons
+                    controller.setSystemBarsAppearance(0, mask);
+                } else {
+                    // Light background -> dark icons
+                    controller.setSystemBarsAppearance(mask, mask);
+                }
             }
         } 
         // For Android 8.0 to 10 - use deprecated but still functional systemUiVisibility flags
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             View decorView = window.getDecorView();
             int flags = decorView.getSystemUiVisibility();
-            // Add flags to make navigation bar and status bar icons dark
-            flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+
+            if (isDarkMode) {
+                // Dark background -> clear light flags to use light icons
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            } else {
+                // Light background -> set light flags to use dark icons
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            }
+
             decorView.setSystemUiVisibility(flags);
         }
     }
