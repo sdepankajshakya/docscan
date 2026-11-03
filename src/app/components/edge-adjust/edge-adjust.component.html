@@ -10,7 +10,7 @@
   </div>
 
   <div class="instructions">
-    Drag the corners to match the document edges
+    {{ detectedCorners && detectedCorners.length === 4 ? 'Drag the corners to match the document edges' : 'No document detected. Drag corners to adjust manually' }}
   </div>
 
   <div class="canvas-container" 

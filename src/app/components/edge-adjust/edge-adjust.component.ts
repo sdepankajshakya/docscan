@@ -25,7 +25,7 @@ export class EdgeAdjustComponent implements AfterViewInit {
     private img!: HTMLImageElement;
     private scale = 1;
     private imageData!: string;
-    private detectedCorners?: Array<{ x: number; y: number }>;
+    public detectedCorners?: Array<{ x: number; y: number }>;
     private originalName?: string;
 
     private docService = inject(DocumentProcessingService);
@@ -187,16 +187,18 @@ export class EdgeAdjustComponent implements AfterViewInit {
         const touch = event.touches[0];
         const canvas = this.canvasRef.nativeElement;
         const rect = canvas.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
+        const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+        const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+        const x = (touch.clientX - rect.left) * scaleX;
+        const y = (touch.clientY - rect.top) * scaleY;
 
-        // Find if touching any corner (reduced radius to match smaller markers)
+        // Find if touching any corner (comfortable touch target)
         for (let i = 0; i < this.corners.length; i++) {
             const dx = x - this.corners[i].x;
             const dy = y - this.corners[i].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 28) {
+            if (distance < 35) {
                 this.draggingIndex = i;
                 break;
             }
@@ -211,8 +213,10 @@ export class EdgeAdjustComponent implements AfterViewInit {
             const touch = event.touches[0];
             const canvas = this.canvasRef.nativeElement;
             const rect = canvas.getBoundingClientRect();
-            const x = Math.max(0, Math.min(touch.clientX - rect.left, canvas.width));
-            const y = Math.max(0, Math.min(touch.clientY - rect.top, canvas.height));
+            const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+            const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+            const x = Math.max(0, Math.min((touch.clientX - rect.left) * scaleX, canvas.width));
+            const y = Math.max(0, Math.min((touch.clientY - rect.top) * scaleY, canvas.height));
 
             this.corners[this.draggingIndex] = { x, y };
             this.drawCanvas();
@@ -229,16 +233,18 @@ export class EdgeAdjustComponent implements AfterViewInit {
 
         const canvas = this.canvasRef.nativeElement;
         const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
+        const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+        const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+        const x = (event.clientX - rect.left) * scaleX;
+        const y = (event.clientY - rect.top) * scaleY;
 
-        // Find if clicking any corner (reduced radius to match smaller markers)
+        // Find if clicking any corner
         for (let i = 0; i < this.corners.length; i++) {
             const dx = x - this.corners[i].x;
             const dy = y - this.corners[i].y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 28) {
+            if (distance < 35) {
                 this.draggingIndex = i;
                 break;
             }
@@ -252,8 +258,10 @@ export class EdgeAdjustComponent implements AfterViewInit {
 
             const canvas = this.canvasRef.nativeElement;
             const rect = canvas.getBoundingClientRect();
-            const x = Math.max(0, Math.min(event.clientX - rect.left, canvas.width));
-            const y = Math.max(0, Math.min(event.clientY - rect.top, canvas.height));
+            const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+            const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+            const x = Math.max(0, Math.min((event.clientX - rect.left) * scaleX, canvas.width));
+            const y = Math.max(0, Math.min((event.clientY - rect.top) * scaleY, canvas.height));
 
             this.corners[this.draggingIndex] = { x, y };
             this.drawCanvas();
@@ -276,8 +284,8 @@ export class EdgeAdjustComponent implements AfterViewInit {
         const padding = cornerMarkerRadius;
 
         const originalCorners = this.corners.map(c => ({
-            x: (c.x - padding) / this.scale,
-            y: (c.y - padding) / this.scale
+            x: Math.max(0, Math.min(this.img.width, (c.x - padding) / this.scale)),
+            y: Math.max(0, Math.min(this.img.height, (c.y - padding) / this.scale))
         }));
 
         const loading = await this.loadingCtrl.create({
