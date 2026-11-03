@@ -40,6 +40,22 @@
   color-scheme: light dark;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ion-background-color: #121212;
+    --ion-background-color-rgb: 18, 18, 18;
+    --ion-text-color: #ffffff;
+    --ion-text-color-rgb: 255, 255, 255;
+    --ion-toolbar-background: #1e1e1e;
+    --ion-border-color: #2c2c2c;
+    --ion-color-step-50: #181818;
+    --ion-color-step-100: #242424;
+    --ion-color-step-150: #303030;
+    --ion-color-step-200: #3c3c3c;
+    --ion-color-step-300: #484848;
+  }
+}
+
 body {
   background: var(--ion-background-color);
   color: var(--ion-text-color);

@@ -3,7 +3,7 @@
     <ion-button fill="clear" (click)="cancel()">
       <ion-icon name="close-outline" slot="icon-only"></ion-icon>
     </ion-button>
-    <h2>Adjust Corners</h2>
+    <h2>{{ pageTitle }}</h2>
     <ion-button fill="clear" (click)="confirm()">
       <ion-icon name="checkmark-outline" slot="icon-only"></ion-icon>
     </ion-button>
@@ -23,4 +23,31 @@
        (mouseleave)="onMouseUp()">
     <canvas #canvas></canvas>
   </div>
+
+  <div class="bottom-actions">
+    @if (pageIndex === undefined && !returnToEditor) {
+      <ion-button fill="clear" class="action-btn retake-btn" (click)="retakeCurrentPhoto()">
+        <ion-icon name="camera-outline" slot="start"></ion-icon>
+        Retake
+      </ion-button>
+      <ion-button fill="solid" class="action-btn add-page-btn" (click)="addPage()">
+        <ion-icon name="add-circle-outline" slot="start"></ion-icon>
+        Add Page
+      </ion-button>
+      <ion-button fill="solid" class="action-btn done-btn" (click)="confirm()">
+        <ion-icon name="checkmark-outline" slot="start"></ion-icon>
+        Done {{ sessionPages.length > 0 ? '(' + (sessionPages.length + 1) + ')' : '' }}
+      </ion-button>
+    } @else {
+      <ion-button fill="clear" class="action-btn cancel-btn" (click)="cancel()">
+        Cancel
+      </ion-button>
+      <ion-button fill="solid" class="action-btn done-btn" (click)="confirm()">
+        <ion-icon name="checkmark-outline" slot="start"></ion-icon>
+        Apply Crop
+      </ion-button>
+    }
+  </div>
+
+  <input type="file" accept="image/*" #pageFileInput (change)="onWebPageFileSelected($event)" style="display: none;">
 </div>

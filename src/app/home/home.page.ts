@@ -26,6 +26,7 @@ import {
 } from 'ionicons/icons';
 
 import { DocumentProcessingService, ScannedDocument } from '../services/doc-processing.service';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 
 @Component({
   selector: 'app-home',
@@ -387,11 +388,17 @@ export class HomePage implements OnInit, OnDestroy {
       }
     }
 
-    // Check if it is a PDF -> Extract pages
+    // Check if it is a PDF -> Extract pages incrementally
     if (doc.type === 'pdf' || imageSrc.startsWith('data:application/pdf')) {
       try {
         loading.message = 'Processing PDF pages...';
-        const pages = await this.docService.extractPagesFromPDFData(imageSrc);
+        const pages = await this.docService.extractPagesFromPDFData(imageSrc, {
+          saveToTempFiles: true,
+          virtualize: true,
+          onProgress: (pageNum, totalPages) => {
+            loading.message = `Processing PDF page ${pageNum} of ${totalPages}...`;
+          }
+        });
         await loading.dismiss();
 
         if (pages.length > 0) {
@@ -407,7 +414,8 @@ export class HomePage implements OnInit, OnDestroy {
       } catch (e) {
         console.error('Error parsing PDF', e);
         await loading.dismiss();
-        return; // Or show error toast
+        alert('Could not open PDF file.');
+        return;
       }
     }
 
@@ -428,7 +436,7 @@ export class HomePage implements OnInit, OnDestroy {
         const photo = await this.docService.takePhoto();
 
         if (photo.dataUrl) {
-          await this.detectAndCrop(photo.dataUrl);
+          await this.detectAndCrop(photo.dataUrl, undefined, { sessionPages: [], isMultiScan: true });
         }
       } catch (error) {
         console.error('User cancelled or error:', error);
@@ -439,9 +447,80 @@ export class HomePage implements OnInit, OnDestroy {
     }
   }
 
-  // Action for Docs Tab and Web Camera Fallback
-  openFilePicker() {
-    this.fileInput.nativeElement.click();
+  // Action for Files Tab
+  async openFilePicker() {
+    if (this.platform.is('hybrid')) {
+      const actionSheet = await this.actionSheetCtrl.create({
+        header: 'Import Document',
+        buttons: [
+          {
+            text: 'Photo Gallery (Multiple Images)',
+            icon: 'image-outline',
+            handler: () => {
+              this.pickImagesFromGallery();
+            }
+          },
+          {
+            text: 'Browse Files (PDF or Images)',
+            icon: 'folder-open-outline',
+            handler: () => {
+              this.fileInput.nativeElement.click();
+            }
+          },
+          {
+            text: 'Cancel',
+            role: 'cancel'
+          }
+        ]
+      });
+      await actionSheet.present();
+    } else {
+      this.fileInput.nativeElement.click();
+    }
+  }
+
+  async pickImagesFromGallery() {
+    try {
+      const result = await this.docService.pickImages();
+      if (!result || !result.photos || result.photos.length === 0) {
+        return;
+      }
+
+      const photos = result.photos;
+      const loading = await this.loadingCtrl.create({
+        message: `Importing ${photos.length} image${photos.length > 1 ? 's' : ''}...`,
+        spinner: 'crescent'
+      });
+      await loading.present();
+
+      const allPages: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        loading.message = `Importing image ${i + 1} of ${photos.length}...`;
+        const dataUrl = await this.docService.readGalleryPhotoAsDataUrl(photos[i]);
+        allPages.push(dataUrl);
+        await new Promise(r => setTimeout(r, 0));
+      }
+      await loading.dismiss();
+
+      if (allPages.length === 1) {
+        // Single image selection: allow crop adjustment or editor
+        await this.detectAndCrop(allPages[0], 'Gallery_Photo', { sessionPages: [], isMultiScan: true });
+      } else if (allPages.length > 1) {
+        // Multi-image selection: show as pages of one document
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+        const name = `Gallery_${dateStr}`;
+
+        this.docService.setActiveDocument({
+          images: allPages,
+          image: allPages[0],
+          originalName: name
+        });
+        this.router.navigate(['/editor']);
+      }
+    } catch (e) {
+      console.error('Error importing from gallery:', e);
+    }
   }
 
   // Action for Home Tab
@@ -451,85 +530,121 @@ export class HomePage implements OnInit, OnDestroy {
 
   async handleFileSelect(event: Event) {
     const input = event.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      const file = input.files[0];
+    if (!input.files || input.files.length === 0) return;
+
+    const files = Array.from(input.files);
+
+    // Single PDF file
+    if (files.length === 1 && files[0].type === 'application/pdf') {
+      const file = files[0];
       const filename = file.name;
 
-      // Validate file size
       const sizeValidation = this.docService.validateFileSize(file.size);
       if (!sizeValidation.valid) {
         alert(sizeValidation.error);
+        input.value = '';
         return;
       }
 
-      if (file.type === 'application/pdf') {
-        // Handle PDF file - collect all pages first
-        const loading = await this.loadingCtrl.create({
-          message: 'Processing PDF...',
-          spinner: 'crescent'
+      const loading = await this.loadingCtrl.create({
+        message: 'Processing PDF...',
+        spinner: 'crescent'
+      });
+      await loading.present();
+
+      try {
+        await this.docService.saveProcessingState({
+          fileName: filename,
+          progress: 0,
+          timestamp: Date.now()
         });
-        await loading.present();
 
-        const allPages: string[] = [];
-
-        try {
-          // Save initial processing state
-          await this.docService.saveProcessingState({
-            fileName: filename,
-            progress: 0,
-            timestamp: Date.now()
-          });
-
-          await this.docService.processPDFFile(file, async (imageData, pageNum, totalPages) => {
-            allPages.push(imageData);
-            loading.message = `Processing page ${pageNum} of ${totalPages}...`;
-            
-            // Check for page limit warning
-            if (pageNum === 1) {
-              const pageValidation = this.docService.validatePdfPages(totalPages);
-              if (pageValidation.warning) {
-                console.warn(pageValidation.warning);
-              }
-            }
-
-            // Update processing progress
-            const progress = Math.round((pageNum / totalPages) * 100);
-            await this.docService.updateProcessingProgress(progress, pageNum);
-          });
-
-          await loading.dismiss();
-
-          // Open editor with all pages
-          if (allPages.length > 0) {
-            this.docService.setActiveDocument({
-              images: allPages,
-              image: allPages[0], // Primary image for type compliance
-              originalName: filename.replace('.pdf', '')
-            });
-            
-            // Clear processing state on success
-            await this.docService.clearProcessingState();
-            
-            this.router.navigate(['/editor']);
+        const base64Data = await this.docService.fileToDataUrl(file);
+        const pages = await this.docService.extractPagesFromPDFData(base64Data, {
+          saveToTempFiles: true,
+          virtualize: true,
+          onProgress: (pageNum, totalPages) => {
+            loading.message = `Processing PDF page ${pageNum} of ${totalPages}...`;
           }
-        } catch (e) {
-          await loading.dismiss();
-          console.error('PDF processing error:', e);
-          alert('Failed to process PDF. Please try a smaller file.');
-          // Keep processing state for potential recovery
+        });
+
+        await loading.dismiss();
+
+        if (pages.length > 0) {
+          this.docService.setActiveDocument({
+            images: pages,
+            image: pages[0],
+            originalName: filename.replace('.pdf', '')
+          });
+
+          await this.docService.clearProcessingState();
+          this.router.navigate(['/editor']);
         }
-      } else {
-        // Handle image file
-        const reader = new FileReader();
-        reader.onload = async (e: any) => {
-          await this.detectAndCrop(e.target.result, filename);
-        };
-        reader.readAsDataURL(file);
+      } catch (e) {
+        await loading.dismiss();
+        console.error('PDF processing error:', e);
+        alert('Failed to process PDF. Please try a smaller file.');
       }
 
-      // Reset input so same file can be selected again
       input.value = '';
+      return;
     }
+
+    // Single Image file
+    if (files.length === 1 && files[0].type.startsWith('image/')) {
+      const file = files[0];
+      const filename = file.name;
+
+      const sizeValidation = this.docService.validateFileSize(file.size);
+      if (!sizeValidation.valid) {
+        alert(sizeValidation.error);
+        input.value = '';
+        return;
+      }
+
+      const dataUrl = await this.docService.fileToDataUrl(file);
+      await this.detectAndCrop(dataUrl, filename.replace(/\.[^/.]+$/, ""), { sessionPages: [], isMultiScan: true });
+      input.value = '';
+      return;
+    }
+
+    // Multiple Image files selected
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length > 0) {
+      const loading = await this.loadingCtrl.create({
+        message: `Importing ${imageFiles.length} images...`,
+        spinner: 'crescent'
+      });
+      await loading.present();
+
+      const allPages: string[] = [];
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        loading.message = `Importing image ${i + 1} of ${imageFiles.length}...`;
+        const dataUrl = await this.docService.fileToDataUrl(file);
+        allPages.push(dataUrl);
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      await loading.dismiss();
+
+      if (allPages.length === 1) {
+        await this.detectAndCrop(allPages[0], imageFiles[0].name.replace(/\.[^/.]+$/, ""), { sessionPages: [], isMultiScan: true });
+      } else if (allPages.length > 1) {
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}_${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+        const name = `Gallery_${dateStr}`;
+
+        this.docService.setActiveDocument({
+          images: allPages,
+          image: allPages[0],
+          originalName: name
+        });
+        this.router.navigate(['/editor']);
+      }
+    }
+
+    input.value = '';
   }
 
   async saveAsPDF(doc: ScannedDocument) {
@@ -568,7 +683,11 @@ export class HomePage implements OnInit, OnDestroy {
     }
   }
 
-  async detectAndCrop(imageData: string, originalName?: string) {
+  async detectAndCrop(
+    imageData: string,
+    originalName?: string,
+    options?: { sessionPages?: string[]; isMultiScan?: boolean; returnToEditor?: boolean; pageIndex?: number }
+  ) {
     // Show loading while detecting edges
     const loading = await this.loadingCtrl.create({
       message: 'Detecting document edges...',
@@ -584,7 +703,11 @@ export class HomePage implements OnInit, OnDestroy {
     this.docService.setEdgeDetectionState({
       imageData: imageData,
       detectedCorners: corners || undefined,
-      originalName: originalName
+      originalName: originalName,
+      sessionPages: options?.sessionPages || [],
+      isMultiScan: options?.isMultiScan,
+      returnToEditor: options?.returnToEditor,
+      pageIndex: options?.pageIndex
     });
 
     this.router.navigate(['/edge-adjust']);

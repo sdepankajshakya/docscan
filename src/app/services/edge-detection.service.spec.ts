@@ -538,6 +538,121 @@ describe('EdgeDetectionService', () => {
                 expect(Math.abs(corners[3].y - 320)).toBeLessThanOrEqual(15);
             }
         });
+
+        it('should detect a blank document with high accuracy (blank paper preservation)', async () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400;
+            canvas.height = 300;
+            const ctx = canvas.getContext('2d')!;
+
+            // Dark desk surface
+            ctx.fillStyle = '#221e1a';
+            ctx.fillRect(0, 0, 400, 300);
+
+            // Completely blank white sheet of paper: 100, 50 to 300, 250 (width 200, height 200)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(100, 50, 200, 200);
+
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            const corners = await service.detectDocumentEdges(dataUrl);
+
+            expect(corners).not.toBeNull();
+            if (corners) {
+                expect(corners.length).toBe(4);
+                expect(Math.abs(corners[0].x - 100)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[0].y - 50)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[1].x - 300)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[1].y - 50)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[2].x - 300)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[2].y - 250)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[3].x - 100)).toBeLessThanOrEqual(5);
+                expect(Math.abs(corners[3].y - 250)).toBeLessThanOrEqual(5);
+            }
+        });
+
+        it('should select document rather than container support surface (Adaptive Hierarchy / Rec 5)', async () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 500;
+            canvas.height = 500;
+            const ctx = canvas.getContext('2d')!;
+
+            // Floor
+            ctx.fillStyle = '#202020';
+            ctx.fillRect(0, 0, 500, 500);
+
+            // Outer dark support surface (e.g. green clipboard or filing drawer): 60, 40 to 440, 460
+            ctx.fillStyle = '#1c3b24';
+            ctx.fillRect(60, 40, 380, 420);
+
+            // Inner white document on support: 130, 90 to 370, 410
+            ctx.fillStyle = '#f8f8f8';
+            ctx.fillRect(130, 90, 240, 320);
+
+            // Printed text lines on inner document
+            ctx.fillStyle = '#333333';
+            for (let y = 130; y < 380; y += 14) {
+                ctx.fillRect(150, y, 200, 3);
+            }
+
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            const corners = await service.detectDocumentEdges(dataUrl);
+
+            expect(corners).not.toBeNull();
+            if (corners) {
+                expect(corners.length).toBe(4);
+                // Must detect inner document (x ~130 to 370, y ~90 to 410), NOT outer clipboard (x ~60, y ~40)
+                expect(Math.abs(corners[0].x - 130)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[0].y - 90)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[1].x - 370)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[1].y - 90)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[2].x - 370)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[2].y - 410)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[3].x - 130)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[3].y - 410)).toBeLessThanOrEqual(10);
+            }
+        });
+
+        it('should reject non-normal background seams across document (Directed Gradient / Rec 1)', async () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 400;
+            canvas.height = 400;
+            const ctx = canvas.getContext('2d')!;
+
+            // Wood floor background
+            ctx.fillStyle = '#6b4d32';
+            ctx.fillRect(0, 0, 400, 400);
+
+            // High-contrast longitudinal plank seam extending far past document to the right
+            ctx.fillStyle = '#1a1008';
+            ctx.fillRect(0, 280, 400, 4);
+
+            // Document on floor: 80, 80 to 280, 280
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(80, 80, 200, 200);
+
+            // Text on document
+            ctx.fillStyle = '#333333';
+            for (let y = 100; y < 260; y += 15) {
+                ctx.fillRect(100, y, 160, 3);
+            }
+
+            const dataUrl = canvas.toDataURL('image/jpeg');
+            const corners = await service.detectDocumentEdges(dataUrl);
+
+            expect(corners).not.toBeNull();
+            if (corners) {
+                expect(corners.length).toBe(4);
+                // Must stay bounded to document (x ~80 to 280), NOT stretching along plank seam to x=400
+                expect(Math.abs(corners[0].x - 80)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[0].y - 80)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[1].x - 280)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[1].y - 80)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[2].x - 280)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[2].y - 280)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[3].x - 80)).toBeLessThanOrEqual(10);
+                expect(Math.abs(corners[3].y - 280)).toBeLessThanOrEqual(10);
+            }
+        });
     });
 
     describe('perspectiveTransform', () => {

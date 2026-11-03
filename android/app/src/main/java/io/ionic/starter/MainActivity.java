@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
      */
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativeStorageExportPlugin.class);
         super.onCreate(savedInstanceState);
         setSystemBarsForTheme(); // Apply initial system bar styling
         setupSystemUiListener(); // Set up listener to maintain styling

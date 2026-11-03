@@ -25,7 +25,7 @@
               <ion-icon name="close-circle" (click)="searchQuery = ''" class="clear-icon"></ion-icon>
             }
           </div>
-          <input type="file" accept="image/*,application/pdf" #fileInput (change)="handleFileSelect($event)" style="display: none;">
+          <input type="file" accept="image/*,application/pdf" multiple #fileInput (change)="handleFileSelect($event)" style="display: none;">
         </div>
 
         <div class="content-grid">

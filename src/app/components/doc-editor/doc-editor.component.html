@@ -1,61 +1,121 @@
 <div class="preview-container">
   @if (loading) {
-    <ion-spinner class="loading-spinner"></ion-spinner>
+    <div class="loading-overlay">
+      <ion-spinner class="loading-spinner"></ion-spinner>
+      <span class="loading-text">{{ loadingMessage }}</span>
+      @if (canCancel) {
+        <ion-button fill="outline" color="light" size="small" class="cancel-export-btn" (click)="cancelExport()">
+          Cancel
+        </ion-button>
+      }
+    </div>
   }
   
   <div class="preview-header">
     <ion-button fill="clear" (click)="cancel()">
       <ion-icon name="arrow-back-outline" slot="icon-only"></ion-icon>
     </ion-button>
-    <h2>Edit Document @if (totalPages > 1) { <span>({{currentPage + 1}}/{{totalPages}})</span> }</h2>
+    <h2>Edit Document</h2>
     <ion-button fill="clear" (click)="save()">
       <ion-icon name="checkmark-outline" slot="icon-only"></ion-icon>
     </ion-button>
   </div>
 
-  @if (totalPages > 1) {
-    <div class="pagination-controls">
-      <ion-button fill="clear" (click)="prevPage()" [disabled]="currentPage === 0">
+  <div class="page-toolbar">
+    <div class="pagination-group">
+      <ion-button fill="clear" size="small" (click)="prevPage()" [disabled]="currentPage === 0">
         <ion-icon name="chevron-back-outline" slot="icon-only"></ion-icon>
       </ion-button>
-      <span class="page-indicator">Page {{currentPage + 1}} of {{totalPages}}</span>
-      <ion-button fill="clear" (click)="nextPage()" [disabled]="currentPage === totalPages - 1">
+      <span class="page-indicator">{{ currentPage + 1 }} / {{ totalPages }}</span>
+      <ion-button fill="clear" size="small" (click)="nextPage()" [disabled]="currentPage === totalPages - 1">
         <ion-icon name="chevron-forward-outline" slot="icon-only"></ion-icon>
       </ion-button>
     </div>
-  }
+
+    <div class="page-actions-group">
+      <ion-button fill="clear" size="small" (click)="cropCurrentPage()" title="Crop / Adjust Corners">
+        <ion-icon name="crop-outline" slot="icon-only"></ion-icon>
+      </ion-button>
+      <ion-button fill="clear" size="small" color="danger" (click)="deleteCurrentPage()" title="Remove Page">
+        <ion-icon name="trash-outline" slot="icon-only"></ion-icon>
+      </ion-button>
+      <ion-button fill="clear" size="small" color="primary" (click)="addPage()" title="Add Page">
+        <ion-icon name="add-circle-outline" slot="icon-only"></ion-icon>
+      </ion-button>
+    </div>
+  </div>
 
   <div class="canvas-wrapper">
     <canvas #canvas></canvas>
   </div>
 
-  <div class="filter-controls">
-    <div class="filter-option" (click)="applyFilter('original')" [class.active]="activeFilter === 'original'">
-      Original
+  <!-- Multi-page thumbnail strip with drag-and-drop reordering -->
+  @if (totalPages > 1) {
+    <div class="thumbnails-container">
+      <div class="thumbnails-scroll">
+        @for (preview of allPreviewData; track $index) {
+          <div class="thumb-card"
+               [class.selected]="$index === currentPage"
+               [class.dragging]="$index === draggedIndex"
+               [class.drag-over]="$index === dragOverIndex && $index !== draggedIndex"
+               [attr.data-index]="$index"
+               draggable="true"
+               (dragstart)="onDragStart($event, $index)"
+               (dragover)="onDragOver($event, $index)"
+               (dragenter)="onDragEnter($event, $index)"
+               (dragleave)="onDragLeave($event, $index)"
+               (drop)="onDrop($event, $index)"
+               (dragend)="onDragEnd()"
+               (touchstart)="onTouchStart($event, $index)"
+               (touchmove)="onTouchMove($event)"
+               (touchend)="onTouchEnd()"
+               (click)="selectPage($index)">
+            <img [src]="preview || placeholderPixel" alt="Page preview" class="thumb-img" draggable="false" />
+            <span class="thumb-badge">{{ $index + 1 }}</span>
+            @if (pageFilters[$index] && pageFilters[$index] !== 'original') {
+              <span class="filter-dot"></span>
+            }
+          </div>
+        }
+        <div class="thumb-add-card" (click)="addPage()">
+          <ion-icon name="add-outline"></ion-icon>
+          <span>Add</span>
+        </div>
+      </div>
     </div>
-    <div class="filter-option" (click)="applyFilter('grayscale')" [class.active]="activeFilter === 'grayscale'">
-      Gray
-    </div>
-    <div class="filter-option" (click)="applyFilter('adaptive-threshold')" [class.active]="activeFilter === 'adaptive-threshold'">
-      B&W
-    </div>
-    <div class="filter-option" (click)="applyFilter('high-contrast')" [class.active]="activeFilter === 'high-contrast'">
-      Contrast
-    </div>
-    <div class="filter-option" (click)="applyFilter('brightness')" [class.active]="activeFilter === 'brightness'">
-      Bright
-    </div>
-    <div class="filter-option" (click)="applyFilter('vibrant')" [class.active]="activeFilter === 'vibrant'">
-      Vibrant
-    </div>
-    <div class="filter-option" (click)="applyFilter('sepia')" [class.active]="activeFilter === 'sepia'">
-      Sepia
-    </div>
-    <div class="filter-option" (click)="applyFilter('print-bw')" [class.active]="activeFilter === 'print-bw'">
-      Print B&W
-    </div>
-    <div class="filter-option" (click)="applyFilter('invert')" [class.active]="activeFilter === 'invert'">
-      Invert
+  }
+
+  <div class="filter-controls-container">
+    <div class="filter-controls">
+      <div class="filter-option" (click)="selectFilter('original')" [class.active]="activeFilter === 'original'">
+        Original
+      </div>
+      <div class="filter-option" (click)="selectFilter('grayscale')" [class.active]="activeFilter === 'grayscale'">
+        Gray
+      </div>
+      <div class="filter-option" (click)="selectFilter('adaptive-threshold')" [class.active]="activeFilter === 'adaptive-threshold'">
+        B&W
+      </div>
+      <div class="filter-option" (click)="selectFilter('high-contrast')" [class.active]="activeFilter === 'high-contrast'">
+        Contrast
+      </div>
+      <div class="filter-option" (click)="selectFilter('brightness')" [class.active]="activeFilter === 'brightness'">
+        Bright
+      </div>
+      <div class="filter-option" (click)="selectFilter('vibrant')" [class.active]="activeFilter === 'vibrant'">
+        Vibrant
+      </div>
+      <div class="filter-option" (click)="selectFilter('sepia')" [class.active]="activeFilter === 'sepia'">
+        Sepia
+      </div>
+      <div class="filter-option" (click)="selectFilter('print-bw')" [class.active]="activeFilter === 'print-bw'">
+        Print B&W
+      </div>
+      <div class="filter-option" (click)="selectFilter('invert')" [class.active]="activeFilter === 'invert'">
+        Invert
+      </div>
     </div>
   </div>
+
+  <input type="file" accept="image/*" multiple #addPageInput (change)="onAddPageFilesSelected($event)" style="display: none;">
 </div>

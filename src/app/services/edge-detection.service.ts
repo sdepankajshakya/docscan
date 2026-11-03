@@ -12,7 +12,9 @@ interface EvaluatedQuad {
     corners: Point[];
     areaRatio: number;
     area: number;
+    aspectRatio?: number;
     edgeSupport: number;
+    directedSupport?: number;
     centerScore: number;
     orthoScore: number;
     parallelScore: number;
@@ -109,9 +111,8 @@ export class EdgeDetectionService {
             try {
                 const img = new Image();
                 img.crossOrigin = 'anonymous';
-                img.src = imageDataUrl;
 
-                img.onload = () => {
+                const onLoad = () => {
                     if (!img.width || !img.height) {
                         resolve(null);
                         return;
@@ -163,6 +164,12 @@ export class EdgeDetectionService {
                         cv.Canny(blurred, ref1, 10, 25);
                         cv.Canny(blurred, ref2, 25, 75);
                         cv.bitwise_or(ref1, ref2, refEdges);
+
+                        // Sobel gradients for edge-normal directional alignment (Recommendation 1)
+                        const gradX = track(new cv.Mat());
+                        const gradY = track(new cv.Mat());
+                        cv.Sobel(blurred, gradX, cv.CV_32F, 1, 0, 3);
+                        cv.Sobel(blurred, gradY, cv.CV_32F, 0, 1, 3);
 
                         // Structuring elements for morphological operations
                         const k5 = track(cv.Mat.ones(5, 5, cv.CV_8U));
@@ -254,7 +261,7 @@ export class EdgeDetectionService {
                                         });
                                     }
 
-                                    const evalRes = this.evaluateCandidate(rawPts, w, h, refEdges);
+                                    const evalRes = this.evaluateCandidate(rawPts, w, h, refEdges, gradX, gradY);
                                     if (evalRes) {
                                         allCandidates.push(evalRes);
                                     }
@@ -266,7 +273,7 @@ export class EdgeDetectionService {
                             // avoiding artificial bounding-box padding into the background
                             const extremePts = this.extractHullExtremeCorners(hull);
                             if (extremePts) {
-                                const evalRes = this.evaluateCandidate(extremePts, w, h, refEdges);
+                                const evalRes = this.evaluateCandidate(extremePts, w, h, refEdges, gradX, gradY);
                                 if (evalRes) {
                                     allCandidates.push(evalRes);
                                 }
@@ -276,7 +283,7 @@ export class EdgeDetectionService {
                                 try {
                                     const rrect = cv.minAreaRect(hull);
                                     const rpts = cv.RotatedRect.points(rrect);
-                                    const evalRes = this.evaluateCandidate(rpts, w, h, refEdges);
+                                    const evalRes = this.evaluateCandidate(rpts, w, h, refEdges, gradX, gradY);
                                     if (evalRes) {
                                         allCandidates.push(evalRes);
                                     }
@@ -436,36 +443,49 @@ export class EdgeDetectionService {
                                             insideCount++;
                                         }
                                     }
+
+                                    let candidateEnclosed = false;
                                     if (insideCount >= 3) {
-                                        isNested = true;
-                                        break;
+                                        candidateEnclosed = true;
+                                    } else {
+                                        // Centroid containment & bounding box overlap test:
+                                        // Catches partial crops (e.g. truncated receipt or single column) where candA is inside candB
+                                        const centroidInside = this.pointInPoly(cxA, cyA, candB.corners);
+                                        const minXA = Math.min(candA.corners[0].x, candA.corners[1].x, candA.corners[2].x, candA.corners[3].x);
+                                        const maxXA = Math.max(candA.corners[0].x, candA.corners[1].x, candA.corners[2].x, candA.corners[3].x);
+                                        const minYA = Math.min(candA.corners[0].y, candA.corners[1].y, candA.corners[2].y, candA.corners[3].y);
+                                        const maxYA = Math.max(candA.corners[0].y, candA.corners[1].y, candA.corners[2].y, candA.corners[3].y);
+
+                                        const minXB = Math.min(candB.corners[0].x, candB.corners[1].x, candB.corners[2].x, candB.corners[3].x);
+                                        const maxXB = Math.max(candB.corners[0].x, candB.corners[1].x, candB.corners[2].x, candB.corners[3].x);
+                                        const minYB = Math.min(candB.corners[0].y, candB.corners[1].y, candB.corners[2].y, candB.corners[3].y);
+                                        const maxYB = Math.max(candB.corners[0].y, candB.corners[1].y, candB.corners[2].y, candB.corners[3].y);
+
+                                        const interMinX = Math.max(minXA, minXB);
+                                        const interMaxX = Math.min(maxXA, maxXB);
+                                        const interMinY = Math.max(minYA, minYB);
+                                        const interMaxY = Math.min(maxYA, maxYB);
+                                        if (interMaxX > interMinX && interMaxY > interMinY) {
+                                            const interArea = (interMaxX - interMinX) * (interMaxY - interMinY);
+                                            const bboxA = (maxXA - minXA) * (maxYA - minYA);
+                                            const overlapRatio = interArea / (bboxA + 1e-6);
+                                            if (centroidInside && overlapRatio >= 0.60) {
+                                                candidateEnclosed = true;
+                                            }
+                                        }
                                     }
 
-                                    // Centroid containment & bounding box overlap test:
-                                    // Catches partial crops (e.g. truncated receipt or single column) where candA is inside candB
-                                    const centroidInside = this.pointInPoly(cxA, cyA, candB.corners);
-                                    const minXA = Math.min(candA.corners[0].x, candA.corners[1].x, candA.corners[2].x, candA.corners[3].x);
-                                    const maxXA = Math.max(candA.corners[0].x, candA.corners[1].x, candA.corners[2].x, candA.corners[3].x);
-                                    const minYA = Math.min(candA.corners[0].y, candA.corners[1].y, candA.corners[2].y, candA.corners[3].y);
-                                    const maxYA = Math.max(candA.corners[0].y, candA.corners[1].y, candA.corners[2].y, candA.corners[3].y);
-
-                                    const minXB = Math.min(candB.corners[0].x, candB.corners[1].x, candB.corners[2].x, candB.corners[3].x);
-                                    const maxXB = Math.max(candB.corners[0].x, candB.corners[1].x, candB.corners[2].x, candB.corners[3].x);
-                                    const minYB = Math.min(candB.corners[0].y, candB.corners[1].y, candB.corners[2].y, candB.corners[3].y);
-                                    const maxYB = Math.max(candB.corners[0].y, candB.corners[1].y, candB.corners[2].y, candB.corners[3].y);
-
-                                    const interMinX = Math.max(minXA, minXB);
-                                    const interMaxX = Math.min(maxXA, maxXB);
-                                    const interMinY = Math.max(minYA, minYB);
-                                    const interMaxY = Math.min(maxYA, maxYB);
-                                    if (interMaxX > interMinX && interMaxY > interMinY) {
-                                        const interArea = (interMaxX - interMinX) * (interMaxY - interMinY);
-                                        const bboxA = (maxXA - minXA) * (maxYA - minYA);
-                                        const overlapRatio = interArea / (bboxA + 1e-6);
-                                        if (centroidInside && overlapRatio >= 0.60) {
-                                            isNested = true;
-                                            break;
+                                    if (candidateEnclosed) {
+                                        // Recommendation 5: Adaptive Hierarchy & Support Surface Filtering
+                                        // Check if Candidate B is an outer support surface (clipboard, metal drawer,
+                                        // desk extension, notebook backing) enclosing genuine document Candidate A
+                                        const isSupportSurface = this.checkSupportSurface(candB, candA, gray, refEdges);
+                                        if (isSupportSurface) {
+                                            candB.score *= 0.65;
+                                            continue;
                                         }
+                                        isNested = true;
+                                        break;
                                     }
                                 }
                             }
@@ -505,7 +525,12 @@ export class EdgeDetectionService {
                     }
                 };
 
+                img.onload = onLoad;
                 img.onerror = () => resolve(null);
+                img.src = imageDataUrl;
+                if (img.complete && (img.naturalWidth !== 0 || img.width !== 0)) {
+                    onLoad();
+                }
             } catch (error) {
                 console.error('Edge detection error:', error);
                 resolve(null);
@@ -575,7 +600,14 @@ export class EdgeDetectionService {
      * area coverage, corner orthogonality, side parallelism, centeredness, and edge support.
      * Prevents selecting image frames, background rectangles, or non-document objects.
      */
-    private evaluateCandidate(rawPts: Point[], w: number, h: number, refEdges: any): EvaluatedQuad | null {
+    private evaluateCandidate(
+        rawPts: Point[],
+        w: number,
+        h: number,
+        refEdges: any,
+        gradX: any,
+        gradY: any
+    ): EvaluatedQuad | null {
         const totalArea = w * h;
         const ordered = this.orderPoints(rawPts);
 
@@ -656,10 +688,17 @@ export class EdgeDetectionService {
         }
 
         // 7. Edge support along perimeter
-        const edgeSupport = this.computeEdgeSupport(ordered, refEdges);
+        let edgeSupport = this.computeEdgeSupport(ordered, refEdges);
         if (edgeSupport < 0.30) {
             return null;
         }
+
+        // Recommendation 1: Directed Gradient & Edge-Normal Consistency Scoring
+        const directedSupport = this.computeDirectedGradientSupport(ordered, gradX, gradY, w, h);
+        if (directedSupport < 0.20) {
+            return null; // Reject false candidates cutting across textures or non-normal seams
+        }
+        edgeSupport = 0.50 * edgeSupport + 0.50 * directedSupport;
 
         // 8. Centeredness: distance of quad centroid to image center
         const cx = (ordered[0].x + ordered[1].x + ordered[2].x + ordered[3].x) / 4;
@@ -684,7 +723,9 @@ export class EdgeDetectionService {
             corners: ordered,
             areaRatio,
             area,
+            aspectRatio: ar,
             edgeSupport,
+            directedSupport,
             centerScore,
             orthoScore,
             parallelScore
@@ -729,6 +770,161 @@ export class EdgeDetectionService {
             }
         }
         return totalSamples > 0 ? (hitCount / totalSamples) : 0;
+    }
+
+    /**
+     * Compute the fraction of points along the quadrilateral perimeter that align
+     * with the directed image gradient normal vector (Sobel dx, dy).
+     * Rejects false quad candidates that cut across textures, keycaps, or floor seams.
+     */
+    private computeDirectedGradientSupport(
+        orderedPts: Point[],
+        gradX: any,
+        gradY: any,
+        w: number,
+        h: number
+    ): number {
+        let alignedHits = 0;
+        let totalSamples = 0;
+
+        for (let i = 0; i < 4; i++) {
+            const p1 = orderedPts[i];
+            const p2 = orderedPts[(i + 1) % 4];
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.hypot(dx, dy);
+            if (len < 1e-4) continue;
+
+            // Unit normal vector perpendicular to the segment
+            const nx = -dy / len;
+            const ny = dx / len;
+
+            const steps = Math.max(10, Math.floor(len / 3));
+            for (let s = 1; s < steps; s++) {
+                const t = s / steps;
+                const sx = Math.round(p1.x + dx * t);
+                const sy = Math.round(p1.y + dy * t);
+                totalSamples++;
+
+                // Search in a ±3px window along the normal
+                let maxMag = 0;
+                let bestGx = 0;
+                let bestGy = 0;
+
+                for (let d = -3; d <= 3; d++) {
+                    const qx = Math.round(sx + nx * d);
+                    const qy = Math.round(sy + ny * d);
+                    if (qx >= 0 && qx < w && qy >= 0 && qy < h) {
+                        const gx = gradX.floatPtr(qy, qx)[0];
+                        const gy = gradY.floatPtr(qy, qx)[0];
+                        const mag = Math.hypot(gx, gy);
+                        if (mag > maxMag) {
+                            maxMag = mag;
+                            bestGx = gx;
+                            bestGy = gy;
+                        }
+                    }
+                }
+
+                if (maxMag > 25.0) {
+                    const dot = Math.abs((bestGx * nx + bestGy * ny) / maxMag);
+                    if (dot >= 0.707) { // within 45 degrees of edge normal
+                        alignedHits++;
+                    }
+                }
+            }
+        }
+
+        return totalSamples > 0 ? (alignedHits / totalSamples) : 0;
+    }
+
+    /**
+     * Check if Candidate B is an outer support surface (such as a clipboard, metal drawer opening,
+     * wooden desk extension, or notebook backing) enclosing document Candidate A.
+     * Evaluates margin emptiness (absence of printed document text in the region B \ A)
+     * and substrate contrast step (verifying that B is a distinctly colored mounting surface
+     * rather than the document's own outer white margin).
+     */
+    private checkSupportSurface(
+        candB: EvaluatedQuad,
+        candA: EvaluatedQuad,
+        gray: any,
+        refEdges: any
+    ): boolean {
+        const areaRatio = candB.area / (candA.area + 1e-5);
+        // B must be moderately larger than A (1.3x to 5.5x)
+        if (areaRatio < 1.30 || areaRatio > 5.5) return false;
+
+        // A must be a substantial candidate (>= 6% total image area)
+        if (candA.areaRatio < 0.06) return false;
+
+        // A must have document-like aspect ratio (0.25 to 2.5)
+        const arA = candA.aspectRatio || 1.0;
+        if (arA < 0.25 || arA > 2.5) return false;
+
+        // A must have solid edge support and score
+        if (candA.score < 0.52 || candA.edgeSupport < 0.35) return false;
+
+        // B must be large (>= 20% total area) to be a plausible support surface
+        if (candB.areaRatio < 0.20) return false;
+
+        // Sample points in B that lie outside A (the margin)
+        const minXB = Math.min(...candB.corners.map(p => p.x));
+        const maxXB = Math.max(...candB.corners.map(p => p.x));
+        const minYB = Math.min(...candB.corners.map(p => p.y));
+        const maxYB = Math.max(...candB.corners.map(p => p.y));
+
+        let marginSamples = 0;
+        let marginEdgeHits = 0;
+        const stepX = Math.max(6, Math.floor((maxXB - minXB) / 12));
+        const stepY = Math.max(6, Math.floor((maxYB - minYB) / 12));
+
+        for (let y = minYB + stepY; y < maxYB; y += stepY) {
+            for (let x = minXB + stepX; x < maxXB; x += stepX) {
+                if (this.pointInPoly(x, y, candB.corners) && !this.pointInPoly(x, y, candA.corners)) {
+                    marginSamples++;
+                    if (refEdges.ucharPtr(Math.round(y), Math.round(x))[0] > 0) {
+                        marginEdgeHits++;
+                    }
+                }
+            }
+        }
+
+        if (marginSamples < 12) return false;
+        const marginEdgeFrac = marginEdgeHits / marginSamples;
+
+        // If the margin has printed text/edges (> 6%), B is a multi-section document, NOT a support surface
+        if (marginEdgeFrac > 0.06) return false;
+
+        // Support surface B must have a distinct luminance/color step from document A
+        // (e.g. dark clipboard vs white paper, or dark drawer vs light paper)
+        let sumLumMargin = 0;
+        let sumLumA = 0;
+        let countA = 0;
+        let countMargin = 0;
+
+        for (let y = minYB + stepY; y < maxYB; y += stepY) {
+            for (let x = minXB + stepX; x < maxXB; x += stepX) {
+                const val = gray.ucharPtr(Math.round(y), Math.round(x))[0];
+                if (this.pointInPoly(x, y, candA.corners)) {
+                    sumLumA += val;
+                    countA++;
+                } else if (this.pointInPoly(x, y, candB.corners)) {
+                    sumLumMargin += val;
+                    countMargin++;
+                }
+            }
+        }
+
+        if (countA < 8 || countMargin < 8) return false;
+        const meanA = sumLumA / countA;
+        const meanMargin = sumLumMargin / countMargin;
+        const lumStep = Math.abs(meanA - meanMargin);
+
+        // Support surfaces (clipboard, dark drawer, wood desk, yellow notebook) have substantial contrast step
+        if (lumStep < 25.0) return false;
+
+        return true;
     }
 
     private dist(p1: Point, p2: Point): number {
@@ -814,12 +1010,13 @@ export class EdgeDetectionService {
             try {
                 const img = new Image();
                 img.crossOrigin = 'anonymous';
-                img.src = imageDataUrl;
 
-                img.onload = () => {
+                const onImageLoad = () => {
+                    const imgWidth = img.naturalWidth || img.width;
+                    const imgHeight = img.naturalHeight || img.height;
                     const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+                    canvas.width = imgWidth;
+                    canvas.height = imgHeight;
                     const ctx = canvas.getContext('2d');
                     if (!ctx) {
                         resolve(null);
@@ -827,8 +1024,15 @@ export class EdgeDetectionService {
                     }
                     ctx.drawImage(img, 0, 0);
 
-                    // Create OpenCV Mat from canvas
-                    const src = cv.imread(canvas);
+                    let src: any = null;
+                    let dst: any = null;
+                    let M: any = null;
+                    let srcPoints: any = null;
+                    let dstPoints: any = null;
+
+                    try {
+                        // Create OpenCV Mat from canvas
+                        src = cv.imread(canvas);
 
                     // Order corners: top-left, top-right, bottom-right, bottom-left
                     const orderedCorners = this.orderPoints(corners);
@@ -882,19 +1086,26 @@ export class EdgeDetectionService {
                     const outputCanvas = document.createElement('canvas');
                     cv.imshow(outputCanvas, dst);
 
-                    const resultDataUrl = outputCanvas.toDataURL('image/jpeg', 0.9);
-
-                    // Clean up
-                    src.delete();
-                    dst.delete();
-                    M.delete();
-                    srcPoints.delete();
-                    dstPoints.delete();
-
-                    resolve(resultDataUrl);
+                    const resultDataUrl = outputCanvas.toDataURL('image/jpeg', 0.95);
+                        resolve(resultDataUrl);
+                    } catch (err) {
+                        console.error('Error during warp perspective:', err);
+                        resolve(null);
+                    } finally {
+                        if (src) src.delete();
+                        if (dst) dst.delete();
+                        if (M) M.delete();
+                        if (srcPoints) srcPoints.delete();
+                        if (dstPoints) dstPoints.delete();
+                    }
                 };
 
+                img.onload = onImageLoad;
                 img.onerror = () => resolve(null);
+                img.src = imageDataUrl;
+                if (img.complete && (img.naturalWidth !== 0 || img.width !== 0)) {
+                    onImageLoad();
+                }
             } catch (error) {
                 console.error('Edge detection error:', error);
                 resolve(null);
