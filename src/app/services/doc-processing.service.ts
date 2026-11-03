@@ -2195,12 +2195,30 @@ export class DocumentProcessingService {
     }
 
     /**
-     * Detect document edges using OpenCV.js.
-     * 
+     * Detect document edges using the DocAligner + OpenCV hybrid pipeline.
+     *
+     * Primary path: DocAligner LCNet100 ONNX (runs locally, no network).
+     * Fallback path: existing OpenCV Combination A detector.
+     *
+     * The OpenCV implementation is preserved unchanged and is invoked whenever
+     * DocAligner confidence is too low or inference fails.
+     *
      * @param imageDataUrl Base64 data URL of the image.
      * @returns Promise with detected corner points or null.
      */
     async detectDocumentEdges(imageDataUrl: string): Promise<Array<{ x: number; y: number }> | null> {
+        const result = await this.edgeDetectionService.detectDocumentEdgesHybrid(imageDataUrl);
+        return result.corners;
+    }
+
+    /**
+     * Detect document edges using the legacy OpenCV-only detector.
+     * Exposed for callers that need to bypass the hybrid pipeline (tests, comparison, etc.).
+     *
+     * @param imageDataUrl Base64 data URL of the image.
+     * @returns Promise with detected corner points or null.
+     */
+    async detectDocumentEdgesOpenCV(imageDataUrl: string): Promise<Array<{ x: number; y: number }> | null> {
         return this.edgeDetectionService.detectDocumentEdges(imageDataUrl);
     }
 

@@ -33,6 +33,7 @@
     "@capacitor/status-bar": "^8.0.0",
     "@ionic/angular": "^8.0.0",
     "ionicons": "^7.0.0",
+    "onnxruntime-web": "1.18.0",
     "opencv.js": "^1.2.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",

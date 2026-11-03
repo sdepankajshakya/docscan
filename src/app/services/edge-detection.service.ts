@@ -1,10 +1,21 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { DocAlignerService } from './doc-aligner.service';
 
 declare const cv: any;
 
 export interface Point {
     x: number;
     y: number;
+}
+
+/**
+ * Result returned by detectDocumentEdgesHybrid().
+ * Includes the chosen source so callers can log or display diagnostics.
+ */
+export interface HybridDetectionResult {
+    corners: Point[] | null;
+    source: 'DocAligner' | 'OpenCV' | 'none';
+    mlMinPeak: number | null;
 }
 
 interface EvaluatedQuad {
@@ -34,7 +45,14 @@ export class EdgeDetectionService {
     private cvReady = false;
     private static cvPromise: Promise<void> | null = null;
 
+    private docAligner?: DocAlignerService;
+
     constructor() {
+        try {
+            this.docAligner = inject(DocAlignerService);
+        } catch (_) {
+            // Support direct instantiation via 'new EdgeDetectionService()' outside Angular DI
+        }
         this.loadOpenCV().catch(() => {});
     }
 
@@ -1111,5 +1129,122 @@ export class EdgeDetectionService {
                 resolve(null);
             }
         });
+    }
+
+    // -------------------------------------------------------------------------
+    // Hybrid ML + OpenCV detector (primary public API for new scans)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Detect document edges using the DocAligner + OpenCV hybrid pipeline.
+     *
+     * Decision logic (mirrors the benchmarked 119/130 configuration):
+     *   1. Load the image onto a canvas.
+     *   2. Run DocAligner LCNet100 ONNX inference.
+     *   3. If all four corner heatmaps exceed the confidence threshold AND the
+     *      resulting quad passes geometric validation → return ML corners.
+     *   4. Otherwise fall back to the existing OpenCV Combination A detector.
+     *
+     * The method is safe to call concurrently for multiple images; each call
+     * uses an independently allocated canvas and releases it when done.
+     *
+     * @param imageDataUrl  Base64 data URL of the source image.
+     * @param confidenceThreshold  Override the default 0.35 threshold (tests only).
+     * @returns HybridDetectionResult with corners and the chosen source.
+     */
+    async detectDocumentEdgesHybrid(
+        imageDataUrl: string,
+        confidenceThreshold?: number
+    ): Promise<HybridDetectionResult> {
+
+        // --- Load image onto a canvas so we can pass it to DocAligner --------
+        let canvas: HTMLCanvasElement | null = null;
+        let corners: Point[] | null = null;
+        let mlMinPeak: number | null = null;
+
+        try {
+            canvas = await this.imageDataUrlToCanvas(imageDataUrl);
+        } catch (_) {
+            canvas = null;
+        }
+
+        // --- Stage 1: Try DocAligner -----------------------------------------
+        if (canvas) {
+            try {
+                if (!this.docAligner) {
+                    this.docAligner = new DocAlignerService();
+                }
+                const result = await this.docAligner.detectDocumentCorners(
+                    canvas,
+                    confidenceThreshold
+                );
+                mlMinPeak = result.minPeak;
+                console.log(result.message);
+
+                if (result.fromML && result.corners) {
+                    this.releaseCanvas(canvas);
+                    return { corners: result.corners, source: 'DocAligner', mlMinPeak };
+                }
+            } catch (err) {
+                console.warn('[HybridDetector] DocAligner threw unexpectedly:', err);
+            }
+            this.releaseCanvas(canvas);
+        } else {
+            console.warn('[HybridDetector] Could not decode image; attempting OpenCV fallback');
+        }
+
+        // --- Stage 2: OpenCV Combination A fallback --------------------------
+        corners = await this.detectDocumentEdges(imageDataUrl);
+
+        if (corners) {
+            return { corners, source: 'OpenCV', mlMinPeak };
+        }
+
+        return { corners: null, source: 'none', mlMinPeak };
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Decode a data URL onto an HTMLCanvasElement at the image's natural size.
+     * Rejects if the data URL is invalid or the image fails to load.
+     */
+    private imageDataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+
+            const onLoad = () => {
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (!w || !h) {
+                    reject(new Error('Image has zero dimensions'));
+                    return;
+                }
+                const c = document.createElement('canvas');
+                c.width = w;
+                c.height = h;
+                const ctx = c.getContext('2d');
+                if (!ctx) { reject(new Error('No 2D context')); return; }
+                ctx.drawImage(img, 0, 0);
+                resolve(c);
+            };
+
+            img.onload = onLoad;
+            img.onerror = () => reject(new Error('Image load failed'));
+            img.src = dataUrl;
+            if (img.complete && (img.naturalWidth !== 0 || img.width !== 0)) {
+                onLoad();
+            }
+        });
+    }
+
+    /** Release a canvas backing store to return GPU/CPU memory. */
+    private releaseCanvas(canvas: HTMLCanvasElement | null): void {
+        if (!canvas) return;
+        canvas.width = 0;
+        canvas.height = 0;
     }
 }

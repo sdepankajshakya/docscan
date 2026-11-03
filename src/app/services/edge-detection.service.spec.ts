@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { EdgeDetectionService, Point } from './edge-detection.service';
+import { EdgeDetectionService, Point, HybridDetectionResult } from './edge-detection.service';
+import { DocAlignerService } from './doc-aligner.service';
 
 describe('EdgeDetectionService', () => {
     let service: EdgeDetectionService;
@@ -683,5 +684,207 @@ describe('EdgeDetectionService', () => {
             expect(result).toBeTruthy();
             expect(result?.startsWith('data:image/jpeg')).toBeTrue();
         });
+    });
+});
+
+// ============================================================================
+// Hybrid Detector Tests (detectDocumentEdgesHybrid)
+// ============================================================================
+
+describe('EdgeDetectionService - Hybrid Detector', () => {
+    let service: EdgeDetectionService;
+    let mockDocAligner: jasmine.SpyObj<DocAlignerService>;
+
+    // A minimal valid data URL for testing (1×1 grey pixel JPEG)
+    const TINY_DATA_URL = (() => {
+        const c = document.createElement('canvas');
+        c.width = 400; c.height = 300;
+        const ctx = c.getContext('2d')!;
+        ctx.fillStyle = '#555';
+        ctx.fillRect(0, 0, 400, 300);
+        return c.toDataURL('image/jpeg');
+    })();
+
+    const VALID_CORNERS: Point[] = [
+        { x: 50, y: 40 },
+        { x: 350, y: 40 },
+        { x: 350, y: 260 },
+        { x: 50, y: 260 }
+    ];
+
+    beforeEach(() => {
+        mockDocAligner = jasmine.createSpyObj<DocAlignerService>('DocAlignerService', [
+            'detectDocumentCorners',
+            'isValidQuad',
+            'ensureSession'
+        ]);
+        // Default: low confidence, no ML corners
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: null,
+            minPeak: 0.05,
+            fromML: false,
+            isOpenCVFallback: false,
+            message: '[DocAligner] Low confidence'
+        }));
+
+        TestBed.configureTestingModule({
+            providers: [
+                EdgeDetectionService,
+                { provide: DocAlignerService, useValue: mockDocAligner }
+            ]
+        });
+        service = TestBed.inject(EdgeDetectionService);
+    });
+
+    // -----------------------------------------------------------------------
+    // 1. DocAligner succeeds → return ML corners, do NOT call OpenCV
+    // -----------------------------------------------------------------------
+    it('should return DocAligner corners when ML confidence is high', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: VALID_CORNERS,
+            minPeak: 0.88,
+            fromML: true,
+            isOpenCVFallback: false,
+            message: '[DocAligner] OK (min peak 0.880)'
+        }));
+
+        spyOn(service as any, 'detectDocumentEdges').and.callThrough();
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(result.source).toBe('DocAligner');
+        expect(result.corners).toEqual(VALID_CORNERS);
+        expect(result.mlMinPeak).toBe(0.88);
+        // OpenCV should NOT have been called
+        expect((service as any)['detectDocumentEdges']).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // 2. DocAligner low confidence → falls back to OpenCV
+    // -----------------------------------------------------------------------
+    it('should fall back to OpenCV when DocAligner confidence is below threshold', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: null,
+            minPeak: 0.08,
+            fromML: false,
+            isOpenCVFallback: false,
+            message: '[DocAligner] Low confidence'
+        }));
+
+        // Mock the OpenCV path to return a known result
+        spyOn<any>(service, 'detectDocumentEdges').and.returnValue(Promise.resolve(VALID_CORNERS));
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(result.source).toBe('OpenCV');
+        expect(result.corners).toEqual(VALID_CORNERS);
+        expect(result.mlMinPeak).toBe(0.08);
+    });
+
+    // -----------------------------------------------------------------------
+    // 3. DocAligner session unavailable → falls back to OpenCV
+    // -----------------------------------------------------------------------
+    it('should fall back to OpenCV when DocAligner session is unavailable', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: null,
+            minPeak: null,
+            fromML: false,
+            isOpenCVFallback: false,
+            message: '[DocAligner] Session unavailable; use OpenCV fallback'
+        }));
+
+        spyOn<any>(service, 'detectDocumentEdges').and.returnValue(Promise.resolve(VALID_CORNERS));
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(result.source).toBe('OpenCV');
+        expect(result.corners).toEqual(VALID_CORNERS);
+    });
+
+    // -----------------------------------------------------------------------
+    // 4. DocAligner throws → falls back to OpenCV gracefully
+    // -----------------------------------------------------------------------
+    it('should fall back to OpenCV when DocAligner throws an exception', async () => {
+        mockDocAligner.detectDocumentCorners.and.throwError('WASM crash');
+
+        spyOn<any>(service, 'detectDocumentEdges').and.returnValue(Promise.resolve(VALID_CORNERS));
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(result.source).toBe('OpenCV');
+        expect(result.corners).toEqual(VALID_CORNERS);
+    });
+
+    // -----------------------------------------------------------------------
+    // 5. Both DocAligner and OpenCV fail → source:'none', corners:null
+    // -----------------------------------------------------------------------
+    it('should return source:none when both DocAligner and OpenCV fail', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: null, minPeak: 0.02, fromML: false, isOpenCVFallback: false,
+            message: '[DocAligner] Low confidence'
+        }));
+
+        spyOn<any>(service, 'detectDocumentEdges').and.returnValue(Promise.resolve(null));
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(result.source).toBe('none');
+        expect(result.corners).toBeNull();
+    });
+
+    // -----------------------------------------------------------------------
+    // 6. Multiple sequential images – DocAligner is called each time
+    // -----------------------------------------------------------------------
+    it('should call DocAligner for each of multiple sequential images', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: VALID_CORNERS, minPeak: 0.90, fromML: true,
+            isOpenCVFallback: false, message: 'OK'
+        }));
+
+        await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+        await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+        await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+
+        expect(mockDocAligner.detectDocumentCorners).toHaveBeenCalledTimes(3);
+    });
+
+    // -----------------------------------------------------------------------
+    // 7. Confidence threshold is honoured exactly at the boundary
+    // -----------------------------------------------------------------------
+    it('should use ML result when minPeak is exactly equal to the threshold', async () => {
+        const THRESHOLD = 0.35;
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: VALID_CORNERS, minPeak: THRESHOLD, fromML: true,
+            isOpenCVFallback: false, message: `OK (min peak ${THRESHOLD})`
+        }));
+
+        const result: HybridDetectionResult = await service.detectDocumentEdgesHybrid(TINY_DATA_URL, THRESHOLD);
+        expect(result.source).toBe('DocAligner');
+        expect(result.corners).toEqual(VALID_CORNERS);
+    });
+
+    // -----------------------------------------------------------------------
+    // 8. result.source reflects actual chosen path (no fabrication)
+    // -----------------------------------------------------------------------
+    it('result.source should be DocAligner when ML corners are used', async () => {
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: VALID_CORNERS, minPeak: 0.80, fromML: true,
+            isOpenCVFallback: false, message: 'OK'
+        }));
+
+        const result = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+        expect(result.source).toBe('DocAligner');
+    });
+
+    it('result.source should be OpenCV when fallback is used', async () => {
+        // ML fails
+        mockDocAligner.detectDocumentCorners.and.returnValue(Promise.resolve({
+            corners: null, minPeak: 0.01, fromML: false,
+            isOpenCVFallback: false, message: 'low'
+        }));
+        spyOn<any>(service, 'detectDocumentEdges').and.returnValue(Promise.resolve(VALID_CORNERS));
+
+        const result = await service.detectDocumentEdgesHybrid(TINY_DATA_URL);
+        expect(result.source).toBe('OpenCV');
     });
 });
