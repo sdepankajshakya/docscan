@@ -7,8 +7,19 @@ android {
         applicationId "com.docscan.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+
+        // versionCode: use explicit VERSION_CODE env var (set by CI deploy job),
+        // or -PversionCode Gradle property for local testing, or 1 for local dev.
+        // The CI workflow computes VERSION_CODE = VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER
+        // before invoking Gradle, guaranteeing monotonic uniqueness per deployment.
+        def envVersionCode = System.getenv("VERSION_CODE")
+        def dynamicVersionCode = project.hasProperty('versionCode')
+            ? project.property('versionCode').toString().toInteger()
+            : (envVersionCode ? envVersionCode.toInteger() : 1)
+
+        versionCode dynamicVersionCode
+        versionName project.hasProperty('versionName') ? project.property('versionName') : (System.getenv("VERSION_NAME") ?: "1.0")
+        logger.lifecycle("DocScan build configured: versionCode=${versionCode}, versionName=${versionName}")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +27,38 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            def envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH") ?: System.getenv("ANDROID_KEYSTORE_FILE")
+            def envKeystoreBase64 = System.getenv("ANDROID_KEYSTORE_BASE64")
+            def envKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            def envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            def envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+            if (envKeystorePath && file(envKeystorePath).exists()) {
+                storeFile = file(envKeystorePath)
+                storePassword = envKeystorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
+            } else if (envKeystoreBase64) {
+                def tempKeystore = file("${project.layout.buildDirectory.get().asFile}/temp-keystore/docscan-release.jks")
+                if (!tempKeystore.parentFile.exists()) {
+                    tempKeystore.parentFile.mkdirs()
+                }
+                tempKeystore.bytes = envKeystoreBase64.decodeBase64()
+                storeFile = tempKeystore
+                storePassword = envKeystorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
+            def releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile != null && releaseSigning.storeFile.exists()) {
+                signingConfig releaseSigning
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -1,0 +1,205 @@
+name: Android CI/CD
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# ---------------------------------------------------------------------------
+# Job 1: CI – runs on every push and every pull request
+# Builds, tests and produces an unsigned AAB (no secrets required).
+# ---------------------------------------------------------------------------
+jobs:
+  ci:
+    name: CI – Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Angular unit tests
+        run: npm test -- --watch=false --browsers=ChromeHeadless
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Build unsigned release AAB
+        run: |
+          cd android
+          chmod +x gradlew
+          # No signing env vars set – Gradle omits signingConfig and produces
+          # a valid but unsigned AAB, which is acceptable for CI verification.
+          ./gradlew bundleRelease --stacktrace
+
+      - name: Upload unsigned AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docscan-release-aab-unsigned
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+# ---------------------------------------------------------------------------
+# Job 2: Deploy – runs ONLY on direct pushes to master.
+# Requires all four signing secrets and the Play Store service account.
+# The job fails loudly if any required secret is absent.
+# ---------------------------------------------------------------------------
+  deploy:
+    name: CD – Sign & Deploy to Play Internal Testing
+    runs-on: ubuntu-latest
+    # Only deploy on pushes to master, never on pull requests.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Wait for CI to pass before deploying.
+    needs: ci
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      # --- Signing credentials validation -----------------------------------
+      # Fail fast with a clear message if any required secret is not set.
+      # `secrets.*` values in `run:` shells are masked but available.
+      # We cannot test them in `if:` expressions (they always appear empty
+      # there), so we validate inside a shell step instead.
+      - name: Validate signing secrets are present
+        env:
+          _KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          _KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          _KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          _KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          _PLAY_KEY: ${{ secrets.PLAY_STORE_JSON_KEY }}
+        run: |
+          missing=()
+          [ -z "$_KS_B64"    ] && missing+=("ANDROID_KEYSTORE_BASE64")
+          [ -z "$_KS_PASS"   ] && missing+=("ANDROID_KEYSTORE_PASSWORD")
+          [ -z "$_KEY_ALIAS" ] && missing+=("ANDROID_KEY_ALIAS")
+          [ -z "$_KEY_PASS"  ] && missing+=("ANDROID_KEY_PASSWORD")
+          [ -z "$_PLAY_KEY"  ] && missing+=("PLAY_STORE_JSON_KEY")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::The following required GitHub Secrets are not configured:"
+            for s in "${missing[@]}"; do echo "  - $s"; done
+            echo ""
+            echo "Configure them at: Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      # --- Keystore decode --------------------------------------------------
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          KEYSTORE_DIR="$RUNNER_TEMP/keystore"
+          mkdir -p "$KEYSTORE_DIR"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_DIR/docscan-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_DIR/docscan-release.jks" >> $GITHUB_ENV
+          echo "Keystore decoded to $KEYSTORE_DIR/docscan-release.jks"
+
+      # --- versionCode computation ------------------------------------------
+      # versionCode = VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER
+      #
+      # VERSION_CODE_OFFSET must equal the highest versionCode already accepted
+      # by Google Play for this app (check Play Console → your releases).
+      # GITHUB_RUN_NUMBER starts at 1 and increases with every run, so the
+      # result is always strictly greater than OFFSET and unique per deployment.
+      #
+      # Example: Play Console highest code = 5  →  set OFFSET = 5
+      #          Run 1 → versionCode = 6, Run 2 → 7, etc.
+      - name: Compute versionCode
+        env:
+          VERSION_CODE_OFFSET: ${{ vars.VERSION_CODE_OFFSET }}
+        run: |
+          if [ -z "$VERSION_CODE_OFFSET" ]; then
+            echo "::error::VERSION_CODE_OFFSET Actions Variable is not set."
+            echo "Set it to the highest versionCode already used in Google Play Console."
+            echo "currently published in Google Play Console for com.docscan.app."
+            echo "Go to: Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          VERSION_CODE=$(( VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER ))
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+          echo "Computed versionCode: $VERSION_CODE (offset=$VERSION_CODE_OFFSET + run=$GITHUB_RUN_NUMBER)"
+
+      # --- Signed build -----------------------------------------------------
+      - name: Build signed release AAB
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew bundleRelease --stacktrace
+
+      - name: Upload signed AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docscan-release-aab-signed
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 90
+
+      # --- Google Play Upload -----------------------------------------------
+      # Deploys to the Internal Testing track only. Production promotion
+      # remains manual via the Google Play Console.
+      - name: Upload to Google Play Internal Testing
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_STORE_JSON_KEY }}
+          packageName: com.docscan.app
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+
+      # --- Cleanup ----------------------------------------------------------
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keystore"
